@@ -1,0 +1,36 @@
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.pyright/
+*.egg-info/
+.eggs/
+node_modules/
+.next/
+dist/
+build/
+coverage/
+.coverage
+htmlcov/
+playwright-report/
+test-results/
+blob-report/
+.features-gen/
+*.db
+*.sqlite
+*.sqlite3
+.e2e-events.db
+# Real environment files stay off a public remote. The reference app's
+# .env.development only names loopback URLs and is committed on purpose.
+.env
+.env.*
+!.env.development
+.env*.local
+reports/
+*.tsbuildinfo
+*.log
+.DS_Store
+.idea/
+.vscode/
