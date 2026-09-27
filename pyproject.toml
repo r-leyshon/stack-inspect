@@ -1,0 +1,90 @@
+[project]
+name = "stack-inspect-workspace"
+version = "1.0.0"
+description = "Development-only execution graph for Next.js, FastAPI and PostgreSQL"
+requires-python = ">=3.12"
+dependencies = []
+
+[tool.uv.workspace]
+members = [
+  "packages/stack-inspect-core",
+  "packages/stack-inspect",
+  "packages/stack-inspect-fastapi",
+  "packages/stack-inspect-db",
+  "reference/api",
+]
+
+[tool.uv.sources]
+stack-inspect-core = { workspace = true }
+stack-inspect = { workspace = true }
+stack-inspect-fastapi = { workspace = true }
+stack-inspect-db = { workspace = true }
+stack-inspect-reference-api = { workspace = true }
+
+[dependency-groups]
+dev = [
+  "anyio>=4.8",
+  "asyncpg>=0.30",
+  "fastapi>=0.115",
+  "httpx>=0.28",
+  "pyright>=1.1.400",
+  "pytest>=8.3",
+  "ruff>=0.11",
+  "stack-inspect",
+  "stack-inspect-core",
+  "stack-inspect-db",
+  "stack-inspect-fastapi",
+  "stack-inspect-reference-api",
+  "uvicorn>=0.34",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["packages", "reference"]
+addopts = ["--import-mode=importlib"]
+markers = [
+  "integration: needs PostgreSQL",
+]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 120
+src = ["packages", "reference", "scripts"]
+
+[tool.ruff.lint]
+select = ["ALL"]
+ignore = [
+  "COM812", # conflicts with the Ruff formatter
+  "CPY001", # the MIT licence lives in LICENSE; repeating it in every file adds nothing
+]
+
+[tool.ruff.lint.per-file-ignores]
+"**/tests/**" = [
+  "S101", # pytest uses bare assert
+  "INP001", # tests are modules, not a package; pytest loads them with importlib
+]
+"scripts/**" = [
+  "T201", # the boot script's job is to print status
+]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.pyright]
+pythonVersion = "3.12"
+typeCheckingMode = "strict"
+# asyncpg and decoded JSON have no type stubs. These reports are the ones that
+# noise comes from; everything else in strict mode still fails the check.
+reportMissingTypeStubs = "none"
+reportUnknownMemberType = "none"
+reportUnknownVariableType = "none"
+reportUnknownArgumentType = "none"
+include = ["packages", "reference", "scripts"]
+extraPaths = [
+  "packages/stack-inspect-core/src",
+  "packages/stack-inspect/src",
+  "packages/stack-inspect-fastapi/src",
+  "packages/stack-inspect-db/src",
+  "reference/api/src",
+]
+venvPath = "."
+venv = ".venv"

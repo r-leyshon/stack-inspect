@@ -1,0 +1,11 @@
+{
+  "name": "@stack-inspect/core",
+  "version": "1.0.0",
+  "private": false,
+  "type": "module",
+  "description": "Dependency-free event helpers for the stack-inspect JavaScript adapters",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "license": "MIT"
+}

@@ -1,0 +1,167 @@
+"""Derive nodes and evidence-bearing edges from the event log."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from typing import TYPE_CHECKING, Literal
+
+if TYPE_CHECKING:
+    from stack_inspect.model import GraphEvent
+
+EdgeSource = Literal["observed", "inferred", "declared"]
+
+
+@dataclass
+class GraphNode:
+    """A stable thing that many events can belong to."""
+
+    node_key: str
+    kind: str
+    layer: str
+    name: str
+    count: int = 0
+
+
+@dataclass
+class GraphEdge:
+    """A relationship between two nodes, with the evidence behind it."""
+
+    origin: str
+    target: str
+    kind: str
+    source: EdgeSource = "observed"
+    count: int = 0
+    first_seen: float = 0
+    last_seen: float = 0
+
+
+@dataclass
+class Span:
+    """A start event paired with its end, when the end has arrived."""
+
+    event_id: str
+    trace_id: str
+    node_key: str
+    kind: str
+    name: str
+    layer: str
+    start: float
+    end: float | None = None
+    parent_id: str | None = None
+    attributes: dict[str, object] = field(default_factory=dict)
+
+
+@dataclass
+class ProjectedGraph:
+    """Nodes, edges and per-trace spans derived from the log."""
+
+    nodes: dict[str, GraphNode]
+    edges: list[GraphEdge]
+    spans_by_trace: dict[str, list[Span]]
+
+
+def project(events: list[GraphEvent]) -> ProjectedGraph:
+    """Build the graph described by ``events``."""
+    nodes: dict[str, GraphNode] = {}
+    edge_index: dict[tuple[str, str, str], GraphEdge] = {}
+    spans: dict[str, Span] = {}
+    spans_by_trace: dict[str, list[Span]] = {}
+
+    for event in events:
+        _accumulate_node(nodes, event)
+        span = _accumulate_span(spans, spans_by_trace, event)
+        if span is None:
+            continue
+        _edges_for_event(edge_index, spans, event, span)
+
+    return ProjectedGraph(nodes=nodes, edges=list(edge_index.values()), spans_by_trace=spans_by_trace)
+
+
+def _accumulate_node(nodes: dict[str, GraphNode], event: GraphEvent) -> None:
+    node = nodes.get(event["nodeKey"])
+    if node is None:
+        node = GraphNode(
+            node_key=event["nodeKey"],
+            kind=event["kind"],
+            layer=event["layer"],
+            name=event["name"],
+        )
+        nodes[event["nodeKey"]] = node
+    if event["phase"] in {"start", "instant"}:
+        node.count += 1
+
+
+def _accumulate_span(
+    spans: dict[str, Span],
+    spans_by_trace: dict[str, list[Span]],
+    event: GraphEvent,
+) -> Span | None:
+    if event["phase"] == "end":
+        target = spans.get(event["id"]) or spans.get(event.get("parentId", ""))
+        if target is None:
+            return None
+        target.end = event["ts"]
+        target.attributes.update(event.get("attributes") or {})
+        return target
+    span = Span(
+        event_id=event["id"],
+        trace_id=event["traceId"],
+        node_key=event["nodeKey"],
+        kind=event["kind"],
+        name=event["name"],
+        layer=event["layer"],
+        start=event["ts"],
+        end=event["ts"] if event["phase"] == "instant" else None,
+        parent_id=event.get("parentId"),
+        attributes=dict(event.get("attributes") or {}),
+    )
+    spans[event["id"]] = span
+    spans_by_trace.setdefault(event["traceId"], []).append(span)
+    return span
+
+
+def _edges_for_event(
+    edge_index: dict[tuple[str, str, str], GraphEdge],
+    spans: dict[str, Span],
+    event: GraphEvent,
+    span: Span,
+) -> None:
+    parent_id = event.get("parentId")
+    if parent_id:
+        parent = spans.get(parent_id)
+        if parent is not None:
+            kind = "emitted" if span.kind == "stream-message" else "contained"
+            _add_edge(edge_index, parent.node_key, span.node_key, kind, event["ts"])
+    for cause_id in event.get("causeIds") or []:
+        cause = spans.get(cause_id)
+        if cause is not None:
+            _add_edge(edge_index, cause.node_key, span.node_key, "caused", event["ts"])
+    invalidates = span.attributes.get("invalidates")
+    if isinstance(invalidates, str):
+        _add_edge(edge_index, span.node_key, invalidates, "invalidated", event["ts"])
+    reads = span.attributes.get("reads")
+    if isinstance(reads, str):
+        _add_edge(edge_index, span.node_key, reads, "read", event["ts"])
+
+
+def _add_edge(
+    edge_index: dict[tuple[str, str, str], GraphEdge],
+    origin: str,
+    target: str,
+    kind: str,
+    seen_at: float,
+) -> None:
+    key = (origin, target, kind)
+    edge = edge_index.get(key)
+    if edge is None:
+        edge_index[key] = GraphEdge(
+            origin=origin,
+            target=target,
+            kind=kind,
+            count=1,
+            first_seen=seen_at,
+            last_seen=seen_at,
+        )
+        return
+    edge.count += 1
+    edge.last_seen = seen_at

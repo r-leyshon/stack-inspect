@@ -1,0 +1,20 @@
+[project]
+name = "stack-inspect-reference-api"
+version = "1.0.0"
+description = "Reference FastAPI app with planted problems for stack-inspect"
+requires-python = ">=3.12"
+dependencies = [
+  "asyncpg>=0.30",
+  "fastapi>=0.115",
+  "stack-inspect-db",
+  "stack-inspect-fastapi",
+  "uvicorn>=0.34",
+  "websockets>=15",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/reference_api"]

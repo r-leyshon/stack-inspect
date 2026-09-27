@@ -1,0 +1,29 @@
+{
+  "name": "stack-inspect-workspace",
+  "private": true,
+  "version": "1.0.0",
+  "workspaces": [
+    "packages/core",
+    "packages/browser",
+    "packages/react",
+    "packages/next",
+    "reference/web"
+  ],
+  "scripts": {
+    "test:e2e": "playwright test",
+    "bddgen": "bddgen"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.2.4",
+    "@playwright/test": "1.55.1",
+    "playwright-bdd": "8.4.1",
+    "typescript": "5.9.2"
+  },
+  "license": "MIT",
+  "overrides": {
+    "postcss": "8.5.28"
+  },
+  "dependencies": {
+    "postcss": "8.5.28"
+  }
+}
