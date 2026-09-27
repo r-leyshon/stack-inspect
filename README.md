@@ -14,7 +14,7 @@ docker compose -f reference/compose.yaml up -d
 uv run python scripts/e2e_stack.py
 ```
 
-Then open the app at <http://127.0.0.1:3000> and the graph at <http://127.0.0.1:9477>. The collector binds to loopback only.
+Then open the app at <http://127.0.0.1:3000> and the graph at <http://127.0.0.1:9477>. The collector binds to loopback only. The page fills in as you use the app: each click is a trace, the timeline shows which layer did the work, and the graph keeps the links it has seen.
 
 ## Use it in an application
 

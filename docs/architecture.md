@@ -51,7 +51,7 @@ flowchart TB
 | Database adapter | Hooks the database driver (asyncpg, psycopg or SQLAlchemy events) to record each query, its normalised fingerprint, duration and row count. |
 | Collector | Local process that receives events from every adapter and appends them to the event log. |
 | Graph projector | Turns the event log into graphs and runs the analysis rules. |
-| UI | Two linked views: a live timeline for a single interaction, and a dependency graph accumulated across interactions. |
+| UI | Three linked views on one page: a timeline whose lanes are the browser, Next.js, the API and the database; a force-directed dependency graph accumulated across interactions; and findings that open into an explanation of what was observed. |
 
 The collector choice is recorded in [ADR 0002](adr/0002-local-collector.md).
 

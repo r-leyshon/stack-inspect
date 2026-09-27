@@ -20,3 +20,6 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/stack_inspect"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"src/stack_inspect/ui.html" = "stack_inspect/ui.html"
