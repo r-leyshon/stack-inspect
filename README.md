@@ -14,7 +14,7 @@ docker compose -f reference/compose.yaml up -d
 uv run python scripts/e2e_stack.py
 ```
 
-Then open the app at <http://127.0.0.1:3000> and the graph at <http://127.0.0.1:9477>. The collector binds to loopback only. The page fills in as you use the app: each click is a trace, the timeline shows which layer did the work, and the graph keeps the links it has seen. **Export**, beside **Reset**, downloads a Markdown or JSON report of the story on screen.
+Then open the app at <http://127.0.0.1:3000> and the graph at <http://127.0.0.1:9477>. The collector binds to loopback only. The page fills in as you use the app: each click is a trace, the timeline shows which layer did the work, and the graph keeps the links it has seen. **Export**, beside **Reset**, downloads a Markdown or JSON report of the story on screen. **Read source**, beside Export, draws dashed lines for relationships the application source declares, and only where both ends have already been recorded. It does not run until you ask. The reference stack passes `--root` for the example apps, so the button never reads stack-inspect itself. For another app, start the collector with `--root` pointed at that app (or set `STACK_INSPECT_ROOTS`).
 
 A second app at <http://127.0.0.1:8010> is a jobs API plus a worker process. **Run a job** queues work on the API and a separate process continues that trace, so the graph shows a jobs lane and a worker lane.
 

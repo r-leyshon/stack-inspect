@@ -34,6 +34,13 @@ def main(argv: list[str] | None = None) -> None:
         default=_socket_from_env(),
         help="also listen on this Unix socket, for processes that cannot use loopback TCP",
     )
+    serve.add_argument(
+        "--root",
+        action="append",
+        type=Path,
+        default=None,
+        help="application directory to read when asked; repeat for each app",
+    )
 
     record = subcommands.add_parser("emit", help="send one event to a running collector")
     record.add_argument("--name", required=True)
@@ -43,7 +50,7 @@ def main(argv: list[str] | None = None) -> None:
 
     args = parser.parse_args(argv)
     if args.command == "serve":
-        _serve(args.host, args.port, args.db, args.socket)
+        _serve(args.host, args.port, args.db, args.socket, _roots(args.root))
         return
     _emit(args.name, args.trace_id, args.layer, args.kind)
 
@@ -58,12 +65,20 @@ def _socket_from_env() -> Path | None:
     return Path(raw) if raw else None
 
 
-def _serve(host: str, port: int, database: Path, socket_path: Path | None) -> None:
+def _roots(chosen: list[Path] | None) -> list[Path]:
+    """Use ``--root`` when it was passed, otherwise ``STACK_INSPECT_ROOTS``."""
+    if chosen:
+        return chosen
+    raw = os.environ.get("STACK_INSPECT_ROOTS", "")
+    return [Path(part) for part in raw.split(os.pathsep) if part.strip()]
+
+
+def _serve(host: str, port: int, database: Path, socket_path: Path | None, roots: list[Path]) -> None:
     if host not in _LOOPBACK_HOSTS:
         sys.exit(f"stack-inspect refuses to bind to {host}; use 127.0.0.1")
     database.parent.mkdir(parents=True, exist_ok=True)
     log = EventLog(database)
-    app = create_app(log)
+    app = create_app(log, roots)
     if socket_path is not None:
         _listen_on_socket(app, socket_path)
     uvicorn.run(app, host=host, port=port, log_level="info")

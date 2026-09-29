@@ -247,6 +247,7 @@
     <h1><span class="live"></span>stack-inspect</h1>
     <p id="status">The graph is built from the app as you use it.</p>
     <div class="header-actions">
+      <button class="tool" type="button" id="read-source">Read source</button>
       <div class="menu">
         <button class="tool" type="button" id="export" aria-expanded="false" aria-controls="export-menu">Export</button>
         <div id="export-menu" class="menu-panel" hidden>
@@ -352,6 +353,8 @@
       query: "",
       scope: "trace",
       live: true,
+      reading: false,
+      sourceNote: "",
       hideAssets: true,
       layers: new Set(["browser", "next", "api", "db"]),
       camera: { x: 0, y: 0, k: 1 },
@@ -621,13 +624,16 @@
         const b = state.nodes.get(edge.to);
         const from = toScreen(a.x, a.y);
         const to = toScreen(b.x, b.y);
+        const declared = edge.source === "declared";
         const hot = !state.hover || neighbours.has(edge.from) || neighbours.has(edge.to);
-        context.strokeStyle = hot ? "#c8c2b688" : "#c8c2b622";
+        context.setLineDash(declared ? [5, 4] : []);
+        context.strokeStyle = declared ? (hot ? "#e0b15acc" : "#e0b15a44") : (hot ? "#c8c2b688" : "#c8c2b622");
         context.lineWidth = Math.min(3.5, 0.6 + Math.log2(edge.count + 1));
         context.beginPath();
         context.moveTo(from.x, from.y);
         context.lineTo(to.x, to.y);
         context.stroke();
+        context.setLineDash([]);
       }
       for (const node of nodes) {
         if (!keys.has(node.nodeKey)) continue;
@@ -717,14 +723,40 @@
       if ((grew || state.selected !== selectedBefore) && !state.drag) requestAnimationFrame(fit);
       const nodes = state.nodes.size;
       const edges = state.edges.length;
-      document.getElementById("status").textContent =
-        nodes === 0
-          ? "The graph is built from the app as you use it. Nothing has been recorded yet."
-          : `${state.traces.length} traces · ${nodes} nodes · ${edges} links, updated as you use the app.`;
+      if (!state.reading) {
+        document.getElementById("status").textContent = statusText(nodes, edges);
+      }
       renderTraces();
       renderTimeline();
       renderFindings();
     }
+
+    function statusText(nodes, edges) {
+      const declared = state.edges.filter((edge) => edge.source === "declared").length;
+      const base = nodes === 0
+        ? "The graph is built from the app as you use it. Nothing has been recorded yet."
+        : `${state.traces.length} traces · ${nodes} nodes · ${edges} links, updated as you use the app.`;
+      const read = declared ? ` ${declared} read from source.` : "";
+      const note = state.sourceNote ? ` ${state.sourceNote}` : "";
+      return `${base}${read}${note}`;
+    }
+
+    document.getElementById("read-source").addEventListener("click", async () => {
+      const button = document.getElementById("read-source");
+      state.reading = true;
+      button.disabled = true;
+      document.getElementById("status").textContent = "Reading source…";
+      try {
+        const response = await fetch("/v1/declared", { method: "POST" });
+        const body = await response.json();
+        state.sourceNote = typeof body.note === "string" ? body.note : "";
+      } catch {
+        state.sourceNote = "Source could not be read.";
+      }
+      state.reading = false;
+      button.disabled = false;
+      refresh();
+    });
 
     document.getElementById("traces").addEventListener("click", (event) => {
       const button = event.target.closest("button[data-trace]");
@@ -824,6 +856,7 @@
       state.focus = "";
       state.openFinding = "";
       state.live = true;
+      state.sourceNote = "";
       document.getElementById("live").setAttribute("aria-pressed", "true");
       renderTraces();
       renderTimeline();
@@ -835,7 +868,7 @@
     const HELP = {
       traces: "Each row is one story: a click or a job, and everything that shared its trace. Select a row to hold that story still. That turns Live off.",
       timeline: "Bars are what ran, from left to right. Each row is one lane: a part of the stack that took part in this story. When more than one named process shared the story, the rows use those process names instead. A lane only appears if something in it actually ran.",
-      graph: "Each dot is something that ran. A line means one event recorded that it happened inside another, or because of another. Sharing a trace does not draw a line, so jobs and worker can be in the same story with nothing joining them. Drag the background to move around, scroll to zoom, and drag a dot to pin it. Hover a dot to see what it connects to.",
+      graph: "Each dot is something that ran. A line means one event recorded that it happened inside another, or because of another. A dashed line was read from the source when you pressed Read source, and it appears only when both ends have already run. Sharing a trace does not draw a line, so jobs and worker can be in the same story with nothing joining them. Drag the background to move around, scroll to zoom, and drag a dot to pin it. Hover a dot to see what it connects to.",
       search: "Type part of a name to hide dots that do not match. Clear the box to show them again.",
       live: "Follows whatever just happened and recentres the picture. Choosing a trace in the list turns this off. Press it again to follow the newest story.",
       scope: "This trace shows only the story selected on the left, plus anything already joined to it by a line. All activity shows every story from this session. Press Fit if the extra dots sit outside the view. Hide assets is on by default, so many of those extra dots stay hidden.",

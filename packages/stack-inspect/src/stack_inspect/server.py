@@ -8,10 +8,11 @@ from typing import TYPE_CHECKING
 from fastapi import FastAPI, Request, Response
 from fastapi.responses import HTMLResponse, JSONResponse
 
-from stack_inspect.model import validate_event
+from stack_inspect.model import GraphEvent, validate_event
 from stack_inspect.projector import Span, project
 from stack_inspect.report import build_report, render_markdown
 from stack_inspect.rules import analyse
+from stack_inspect.source import SOURCE_LIMITS, DeclaredEdge, DeclaredStore, declared_for_graph
 
 if TYPE_CHECKING:
     from starlette.middleware.base import RequestResponseEndpoint
@@ -21,9 +22,10 @@ if TYPE_CHECKING:
 _LOOPBACK = frozenset({"127.0.0.1", "::1", "localhost"})
 
 
-def create_app(log: EventLog) -> FastAPI:  # noqa: C901 # route registration is a flat list, not nested logic
-    """Return the collector application bound to ``log``."""
+def create_app(log: EventLog, roots: list[Path] | None = None) -> FastAPI:  # noqa: C901 # route registration is a flat list, not nested logic
+    """Return the collector application bound to ``log``. ``roots`` are read only when asked."""
     app = FastAPI(title="stack-inspect", docs_url=None, redoc_url=None)
+    source = DeclaredStore(list(roots or []))
 
     @app.middleware("http")
     async def loopback_only(request: Request, call_next: RequestResponseEndpoint) -> Response:
@@ -53,8 +55,9 @@ def create_app(log: EventLog) -> FastAPI:  # noqa: C901 # route registration is 
 
     @app.delete("/v1/events")
     def delete_events() -> dict[str, str]:
-        """Remove every stored event. Test runs call this between scenarios."""
+        """Remove every stored event and the source reading. Test runs call this between scenarios."""
         log.clear()
+        source.clear()
         return {"status": "cleared"}
 
     @app.get("/v1/events")
@@ -63,10 +66,40 @@ def create_app(log: EventLog) -> FastAPI:  # noqa: C901 # route registration is 
         events = log.all_events()
         return {"events": events}
 
+    @app.post("/v1/declared")
+    def read_source() -> dict[str, object]:
+        """Read the configured application roots. This does not append to the event log."""
+        snapshot = source.read()
+        drawn = _declared_edges(log.all_events(), snapshot.edges)
+        return {
+            "edges": [_declared_payload(edge) for edge in snapshot.edges],
+            "drawn": len(drawn),
+            "note": snapshot.note,
+            "limits": SOURCE_LIMITS,
+            "typescript": snapshot.typescript,
+            "refused": list(snapshot.refused),
+        }
+
     @app.get("/v1/graph")
     def graph() -> dict[str, object]:
-        """Return nodes and accumulated edges."""
+        """Return nodes and accumulated edges, including declared edges whose ends were observed."""
         projected = project(log.all_events())
+        observed = [
+            {
+                "from": edge.origin,
+                "to": edge.target,
+                "kind": edge.kind,
+                "source": edge.source,
+                "count": edge.count,
+                "firstSeen": edge.first_seen,
+                "lastSeen": edge.last_seen,
+            }
+            for edge in projected.edges
+        ]
+        declared = [
+            _declared_payload(edge) | {"count": 1, "firstSeen": 0, "lastSeen": 0}
+            for edge in _declared_edges(log.all_events(), source.current().edges)
+        ]
         return {
             "nodes": [
                 {
@@ -79,18 +112,7 @@ def create_app(log: EventLog) -> FastAPI:  # noqa: C901 # route registration is 
                 }
                 for node in projected.nodes.values()
             ],
-            "edges": [
-                {
-                    "from": edge.origin,
-                    "to": edge.target,
-                    "kind": edge.kind,
-                    "source": edge.source,
-                    "count": edge.count,
-                    "firstSeen": edge.first_seen,
-                    "lastSeen": edge.last_seen,
-                }
-                for edge in projected.edges
-            ],
+            "edges": observed + declared,
         }
 
     @app.get("/v1/findings")
@@ -124,6 +146,7 @@ def create_app(log: EventLog) -> FastAPI:  # noqa: C901 # route registration is 
             trace_id=trace or None,
             include_assets=assets == 1,
             include_events=events == 1,
+            declared=source.current().edges,
         )
         if format == "json":
             return JSONResponse(
@@ -143,6 +166,25 @@ def create_app(log: EventLog) -> FastAPI:  # noqa: C901 # route registration is 
         return _UI_PATH.read_text(encoding="utf-8")
 
     return app
+
+
+def _declared_edges(events: list[GraphEvent], edges: tuple[DeclaredEdge, ...]) -> list[DeclaredEdge]:
+    """Return declared edges that can be drawn on top of ``events``."""
+    projected = project(events)
+    observed = [(edge.origin, edge.target, edge.kind) for edge in projected.edges]
+    return declared_for_graph(edges, projected.nodes, observed)
+
+
+def _declared_payload(edge: DeclaredEdge) -> dict[str, object]:
+    """Return the JSON shape of one declared edge."""
+    return {
+        "from": edge.origin,
+        "to": edge.target,
+        "kind": edge.kind,
+        "source": "declared",
+        "originAt": edge.origin_at,
+        "targetAt": edge.target_at,
+    }
 
 
 def _trace_summary(trace_id: str, spans: list[Span]) -> dict[str, object]:

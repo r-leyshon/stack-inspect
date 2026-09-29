@@ -68,6 +68,35 @@ When("I open the worker example and run a job", async ({ page }) => {
   await expect(page.getByText("The worker has the job.")).toBeVisible();
 });
 
+When("I read the source into the graph", async ({ page }) => {
+  await page.goto(collector);
+  const button = page.getByRole("button", { name: "Read source" });
+  await button.click();
+  await expect(button).toBeEnabled({ timeout: 20_000 });
+});
+
+Then(
+  "the graph has a declared edge from {string} to a query",
+  async ({}, origin: string) => {
+    await expect
+      .poll(
+        async () => {
+          const graph = await getJson<{
+            edges: { from: string; to: string; source?: string }[];
+          }>("/v1/graph");
+          return graph.edges.some(
+            (edge) =>
+              edge.source === "declared" &&
+              edge.from === origin &&
+              edge.to.startsWith("db:query:"),
+          );
+        },
+        { timeout: 15_000 },
+      )
+      .toBe(true);
+  },
+);
+
 Then(
   "one trace contains the services {string} and {string}",
   async ({}, first: string, second: string) => {

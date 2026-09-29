@@ -9,10 +9,12 @@ from stack_inspect_core.redact import redact_attributes
 
 from stack_inspect.projector import project
 from stack_inspect.rules import analyse
+from stack_inspect.source import SOURCE_LIMITS, declared_for_graph
 
 if TYPE_CHECKING:
     from stack_inspect.model import GraphEvent
-    from stack_inspect.projector import GraphEdge, GraphNode, Span
+    from stack_inspect.projector import GraphEdge, GraphNode, ProjectedGraph, Span
+    from stack_inspect.source import DeclaredEdge
 
 _REPEATED_MIN = 2
 _REDACTION = "Request bodies, cookies, tokens, SQL parameter values and storage record contents are not included."
@@ -24,6 +26,7 @@ def build_report(
     trace_id: str | None = None,
     include_assets: bool = False,
     include_events: bool = False,
+    declared: tuple[DeclaredEdge, ...] | None = None,
 ) -> dict[str, object]:
     """Return the report as data. Markdown is rendered from this same object."""
     chosen = [event for event in events if trace_id is None or event["traceId"] == trace_id]
@@ -50,6 +53,7 @@ def build_report(
         ],
         "stories": stories,
         "repeated": _repeated(projected.edges, projected.nodes),
+        "declared": _declared(declared or (), projected),
         "omitted": {"assets": 0 if include_assets else len(omitted_assets)},
     }
     if include_events:
@@ -76,6 +80,7 @@ def render_markdown(report: dict[str, object]) -> str:
         _findings_markdown(report["findings"]),
         _stories_markdown(report["stories"]),
         _repeated_markdown(report["repeated"]),
+        _declared_markdown(report["declared"]),
         _omitted_markdown(report["omitted"]),
     ]
     events = report.get("events")
@@ -140,6 +145,24 @@ def _repeated_markdown(repeated: object) -> str:
     return "\n".join(lines)
 
 
+def _declared_markdown(declared: object) -> str:
+    lines = ["## Read from source", ""]
+    if isinstance(declared, list) and declared:
+        lines.extend(_declared_line(edge) for edge in declared if isinstance(edge, dict))
+        lines.extend(["", SOURCE_LIMITS])
+    else:
+        lines.append("None.")
+    lines.append("")
+    return "\n".join(lines)
+
+
+def _declared_line(edge: dict[str, object]) -> str:
+    kind = _plain(edge.get("kind"))
+    origin = _plain(edge.get("from"))
+    target = _plain(edge.get("to"))
+    return f"- `{kind}` {origin} → {target}, read from source."
+
+
 def _edge_line(edge: dict[str, object]) -> str:
     kind = _plain(edge.get("kind"))
     origin = _plain(edge.get("from"))
@@ -198,6 +221,20 @@ def _stories(spans_by_trace: dict[str, list[Span]]) -> list[dict[str, object]]:
         )
     stories.sort(key=lambda story: str(story["started"]))
     return stories
+
+
+def _declared(edges: tuple[DeclaredEdge, ...], projected: ProjectedGraph) -> list[dict[str, object]]:
+    observed = [(edge.origin, edge.target, edge.kind) for edge in projected.edges]
+    visible = declared_for_graph(edges, projected.nodes, observed)
+    return [
+        {
+            "kind": edge.kind,
+            "from": projected.nodes[edge.origin].name,
+            "to": projected.nodes[edge.target].name,
+            "at": edge.origin_at,
+        }
+        for edge in visible
+    ]
 
 
 def _repeated(edges: list[GraphEdge], nodes: dict[str, GraphNode]) -> list[dict[str, object]]:

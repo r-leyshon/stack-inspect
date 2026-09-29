@@ -27,7 +27,23 @@ def main() -> None:
     database.unlink(missing_ok=True)
     _run(["docker", "compose", "-f", "reference/compose.yaml", "up", "-d", "--wait"])
     children = [
-        _popen(["uv", "run", "stack-inspect", "serve", "--db", str(database)], env),
+        _popen(
+            [
+                "uv",
+                "run",
+                "stack-inspect",
+                "serve",
+                "--db",
+                str(database),
+                "--root",
+                str(ROOT / "reference" / "web"),
+                "--root",
+                str(ROOT / "reference" / "api"),
+                "--root",
+                str(ROOT / "reference" / "worker"),
+            ],
+            env,
+        ),
         _popen(
             ["uv", "run", "uvicorn", "reference_api.app:app", "--host", "127.0.0.1", "--port", "8000"],
             env,
