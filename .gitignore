@@ -22,6 +22,7 @@ blob-report/
 *.sqlite
 *.sqlite3
 .e2e-events.db
+.worker-queue/
 # Real environment files stay off a public remote. The reference app's
 # .env.development only names loopback URLs and is committed on purpose.
 .env

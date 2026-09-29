@@ -16,6 +16,7 @@ export type GraphEvent = {
   phase: "start" | "end" | "instant";
   name: string;
   ts: number;
+  service?: string;
   attributes?: Record<string, unknown>;
 };
 
@@ -51,13 +52,57 @@ export function collectorUrl(): string {
   ).replace(/\/$/, "");
 }
 
+const CARRIER_KEY = "traceparent";
+
+type Sink = (event: GraphEvent) => void;
+let sink: Sink | null = null;
+
+/** Replace the poster. The Next.js adapter uses this to send over a Unix socket. */
+export function setSink(next: Sink | null): void {
+  sink = next;
+}
+
+/**
+ * Copy the traceparent into ``carrier`` without modifying it.
+ * Pass the header the current task would send. Returns the new map.
+ */
+export function inject(
+  carrier: Record<string, string>,
+  traceparent: string | null,
+): Record<string, string> {
+  if (!traceparent) {
+    return { ...carrier };
+  }
+  return { ...carrier, [CARRIER_KEY]: traceparent };
+}
+
+/** Read a traceparent out of a string map. */
+export function extract(
+  carrier: Record<string, string>,
+): { traceId: string; spanId: string } | null {
+  const raw = carrier[CARRIER_KEY] ?? carrier.stack_inspect_traceparent;
+  if (!raw) {
+    return null;
+  }
+  return parseTraceparent(raw);
+}
+
 /** Post one event. Never throws. Uses a simple content type so browsers skip the preflight. */
 export function emit(event: GraphEvent): void {
   if (!enabled()) {
     return;
   }
+  const stamped = stampService(event);
+  if (sink) {
+    try {
+      sink(stamped);
+    } catch {
+      // The collector is optional. Losing an event must not break the application.
+    }
+    return;
+  }
   const url = `${collectorUrl()}/v1/events`;
-  const body = JSON.stringify(event);
+  const body = JSON.stringify(stamped);
   try {
     if (typeof fetch === "function") {
       void fetch(url, {
@@ -123,6 +168,19 @@ function randomHex(bytes: number): string {
   ).join("");
 }
 
+function stampService(event: GraphEvent): GraphEvent {
+  if (event.service) {
+    return event;
+  }
+  const service =
+    readEnv("STACK_INSPECT_SERVICE") ??
+    readEnv("NEXT_PUBLIC_STACK_INSPECT_SERVICE");
+  if (!service) {
+    return event;
+  }
+  return { ...event, service: service.slice(0, 80) };
+}
+
 function readEnv(name: string): string | undefined {
   // Direct property access so Next.js can inline NEXT_PUBLIC_ values into the browser bundle.
   // A dynamic process.env[name] lookup stays empty in the client.
@@ -145,6 +203,15 @@ function readEnv(name: string): string | undefined {
   }
   if (name === "STACK_INSPECT_ENV") {
     return process.env.STACK_INSPECT_ENV;
+  }
+  if (name === "STACK_INSPECT_SERVICE") {
+    return (
+      process.env.STACK_INSPECT_SERVICE ??
+      process.env.NEXT_PUBLIC_STACK_INSPECT_SERVICE
+    );
+  }
+  if (name === "NEXT_PUBLIC_STACK_INSPECT_SERVICE") {
+    return process.env.NEXT_PUBLIC_STACK_INSPECT_SERVICE;
   }
   return process.env[name];
 }

@@ -22,9 +22,15 @@ _QUERY_METHODS = ("fetch", "fetchrow", "fetchval", "execute", "executemany")
 
 
 def install() -> None:
-    """Patch ``asyncpg.connect`` and ``asyncpg.create_pool`` when asyncpg is installed."""
+    """Record queries from asyncpg and SQLAlchemy, whichever the application uses."""
     if not enabled():
         return
+    _install_asyncpg()
+    _install_sqlalchemy()
+
+
+def _install_asyncpg() -> None:
+    """Patch ``asyncpg.connect`` and ``asyncpg.create_pool`` when asyncpg is installed."""
     try:
         import asyncpg  # noqa: PLC0415 # optional host dependency, imported only when the app has it
     except ImportError:
@@ -143,6 +149,41 @@ def _recording(method: Callable[..., Awaitable[Any]]) -> Callable[..., Awaitable
         return result
 
     return wrapper
+
+
+def _install_sqlalchemy() -> None:
+    """Record statements executed through any SQLAlchemy engine. Parameters are never stored."""
+    try:
+        from sqlalchemy import event  # noqa: PLC0415 # optional host dependency
+        from sqlalchemy.engine import Engine  # noqa: PLC0415 # optional host dependency
+    except ImportError:
+        return
+    if getattr(Engine, "_stack_inspect_installed", False):
+        return
+
+    def after_execute(
+        _conn: object,
+        _cursor: object,
+        statement: str,
+        _parameters: object,
+        _context: object,
+        _executemany: object,
+    ) -> None:
+        normalised = normalise_sql(statement)
+        fingerprint = fingerprint_sql(statement)
+        context = current_context()
+        emit(
+            _query_event(
+                new_event_id(),
+                phase="instant",
+                statement=normalised,
+                fingerprint=fingerprint,
+                parent_id=context.parent_event_id if context else None,
+            ),
+        )
+
+    event.listen(Engine, "after_cursor_execute", after_execute)
+    setattr(Engine, "_stack_inspect_installed", True)  # noqa: B010 # SQLAlchemy's Engine has no such attribute in its stubs
 
 
 def _with_trace_comment(statement: str) -> str:

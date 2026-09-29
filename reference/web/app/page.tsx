@@ -26,6 +26,9 @@ export default function Page() {
     <QueryClientProvider client={queryClient}>
       <main>
         <h1>Reference app</h1>
+        <p>
+          <a href="http://127.0.0.1:8010">Worker example</a>
+        </p>
         <Dashboard />
         <Duplicate />
         <Crash />
@@ -39,8 +42,30 @@ export default function Page() {
         <Stream />
         <Socket />
         <CachedResults />
+        <LocalNote />
       </main>
     </QueryClientProvider>
+  );
+}
+
+function LocalNote() {
+  return (
+    <button
+      type="button"
+      onClick={() => {
+        const request = indexedDB.open("stack-inspect-demo", 1);
+        request.onupgradeneeded = () => {
+          request.result.createObjectStore("notes");
+        };
+        request.onsuccess = () => {
+          const database = request.result;
+          const transaction = database.transaction("notes", "readwrite");
+          transaction.objectStore("notes").put("secret-note", "greeting");
+        };
+      }}
+    >
+      Save locally
+    </button>
   );
 }
 

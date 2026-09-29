@@ -19,6 +19,7 @@ class GraphNode:
     kind: str
     layer: str
     name: str
+    service: str = ""
     count: int = 0
 
 
@@ -45,6 +46,7 @@ class Span:
     kind: str
     name: str
     layer: str
+    service: str
     start: float
     end: float | None = None
     parent_id: str | None = None
@@ -77,6 +79,11 @@ def project(events: list[GraphEvent]) -> ProjectedGraph:
     return ProjectedGraph(nodes=nodes, edges=list(edge_index.values()), spans_by_trace=spans_by_trace)
 
 
+def _service(event: GraphEvent) -> str:
+    raw = event.get("service")
+    return raw if isinstance(raw, str) else ""
+
+
 def _accumulate_node(nodes: dict[str, GraphNode], event: GraphEvent) -> None:
     node = nodes.get(event["nodeKey"])
     if node is None:
@@ -85,8 +92,11 @@ def _accumulate_node(nodes: dict[str, GraphNode], event: GraphEvent) -> None:
             kind=event["kind"],
             layer=event["layer"],
             name=event["name"],
+            service=_service(event),
         )
         nodes[event["nodeKey"]] = node
+    elif _service(event):
+        node.service = _service(event)
     if event["phase"] in {"start", "instant"}:
         node.count += 1
 
@@ -110,6 +120,7 @@ def _accumulate_span(
         kind=event["kind"],
         name=event["name"],
         layer=event["layer"],
+        service=_service(event),
         start=event["ts"],
         end=event["ts"] if event["phase"] == "instant" else None,
         parent_id=event.get("parentId"),

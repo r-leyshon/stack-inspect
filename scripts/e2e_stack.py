@@ -33,6 +33,14 @@ def main() -> None:
             env,
         ),
         _popen(["npm", "run", "dev", "--workspace", "stack-inspect-reference-web"], env),
+        _popen(
+            ["uv", "run", "uvicorn", "reference_worker.api:app", "--host", "127.0.0.1", "--port", "8010"],
+            {**env, "STACK_INSPECT_SERVICE": "jobs"},
+        ),
+        _popen(
+            ["uv", "run", "python", "-m", "reference_worker.worker"],
+            {**env, "STACK_INSPECT_SERVICE": "worker"},
+        ),
     ]
 
     def stop(*_args: object) -> None:
@@ -45,6 +53,7 @@ def main() -> None:
     wait_until("http://127.0.0.1:9477/health")
     wait_until("http://127.0.0.1:8000/health")
     wait_until("http://127.0.0.1:3000")
+    wait_until("http://127.0.0.1:8010/health")
     while True:
         if any(child.poll() is not None for child in children):
             stop()

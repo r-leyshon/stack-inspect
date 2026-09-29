@@ -62,6 +62,32 @@ When(
   },
 );
 
+When("I open the worker example and run a job", async ({ page }) => {
+  await page.goto("http://127.0.0.1:8010");
+  await page.getByRole("button", { name: "Run a job", exact: true }).click();
+  await expect(page.getByText("The worker has the job.")).toBeVisible();
+});
+
+Then(
+  "one trace contains the services {string} and {string}",
+  async ({}, first: string, second: string) => {
+    await expect
+      .poll(async () => {
+        const events = await allEvents();
+        const traces = new Map<string, Set<string>>();
+        for (const event of events) {
+          const names = traces.get(event.traceId) ?? new Set<string>();
+          if (event.service) names.add(event.service);
+          traces.set(event.traceId, names);
+        }
+        return [...traces.values()].some(
+          (names) => names.has(first) && names.has(second),
+        );
+      })
+      .toBe(true);
+  },
+);
+
 When("I trigger the {string} action", async ({ page }, name: string) => {
   await clickAction(page, name);
 });
@@ -172,6 +198,24 @@ Then(
   },
 );
 
+Then(
+  "the log contains a storage event for {string} and not {string}",
+  async ({}, name: string, secret: string) => {
+    await expect
+      .poll(async () => {
+        const events = await allEvents();
+        const match = events.find(
+          (event) => event.kind === "storage" && event.name === name,
+        );
+        if (!match) {
+          return "missing";
+        }
+        return JSON.stringify(match).includes(secret) ? "leaked" : "ok";
+      })
+      .toBe("ok");
+  },
+);
+
 Then("stack-inspect flags {string}", async ({}, text: string) => {
   await expect
     .poll(async () => (await findingsText()).toLowerCase(), { timeout: 15_000 })
@@ -254,6 +298,7 @@ type RecordedEvent = {
   layer: string;
   name: string;
   traceId: string;
+  service?: string;
   attributes?: Record<string, unknown>;
 };
 

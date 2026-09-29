@@ -18,6 +18,7 @@ class GraphEvent(TypedDict):
     phase: str
     name: str
     ts: float
+    service: NotRequired[str]
     attributes: NotRequired[dict[str, object]]
 
 
@@ -58,4 +59,7 @@ def validate_event(payload: object) -> GraphEvent | None:
     attributes = payload.get("attributes")
     if isinstance(attributes, dict):
         event["attributes"] = attributes
+    service = payload.get("service")
+    if isinstance(service, str) and service.strip():
+        event["service"] = service.strip()[:80]
     return event

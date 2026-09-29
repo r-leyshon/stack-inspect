@@ -8,10 +8,12 @@ import {
   emit,
   enabled,
   formatTraceparent,
+  type GraphEvent,
   newEventId,
   newSpanId,
   newTraceId,
   parseTraceparent,
+  setSink,
 } from "@stack-inspect/core";
 
 type Store = { traceId: string; spanId: string; eventId: string };
@@ -44,8 +46,27 @@ export function register(): void {
     return;
   }
   registered = true;
+  const socketPath = process.env.STACK_INSPECT_SOCKET;
+  if (socketPath) {
+    setSink((event) => postToSocket(socketPath, event));
+  }
   patchIncoming();
   patchFetch();
+}
+
+function postToSocket(socketPath: string, event: GraphEvent): void {
+  const body = JSON.stringify(event);
+  const request = http.request({
+    socketPath,
+    path: "/v1/events",
+    method: "POST",
+    headers: {
+      "content-type": "text/plain",
+      "content-length": Buffer.byteLength(body),
+    },
+  });
+  request.on("error", () => undefined);
+  request.end(body);
 }
 
 /** Record whether middleware rewrote, redirected or continued. */

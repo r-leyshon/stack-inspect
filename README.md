@@ -16,6 +16,8 @@ uv run python scripts/e2e_stack.py
 
 Then open the app at <http://127.0.0.1:3000> and the graph at <http://127.0.0.1:9477>. The collector binds to loopback only. The page fills in as you use the app: each click is a trace, the timeline shows which layer did the work, and the graph keeps the links it has seen.
 
+A second app at <http://127.0.0.1:8010> is a jobs API plus a worker process. **Run a job** queues work on the API and a separate process continues that trace, so the graph shows a jobs lane and a worker lane.
+
 ## Use it in an application
 
 Set `STACK_INSPECT=1` and run the collector (`uv run stack-inspect serve`). Then, in development only:
@@ -35,6 +37,10 @@ import { install as installReact, devtoolsHookSource } from "@stack-inspect/reac
 ```
 
 The adapters do nothing unless `STACK_INSPECT=1`, and they refuse to start when `NODE_ENV` is `production`.
+
+Name a process with `STACK_INSPECT_SERVICE` (for example `api` or `worker`) so the timeline can tell processes apart. To follow a trace through a queue or any other message, copy `inject()` into the map you already send, and `extract()` it where the message is received. `STACK_INSPECT_SOCKET` posts events through a Unix socket for processes that cannot use loopback TCP; the collector still refuses any other TCP client.
+
+`install()` on the page also records IndexedDB and Origin Private File System calls: the store or path, the operation, and a byte count. Values and file contents are not recorded. A worker calls `installStorage()`, and `adoptTrace(traceparent)` when it was given a trace to continue.
 
 ## Tests
 

@@ -1,5 +1,6 @@
 """Dependency-free event emitter for stack-inspect adapters."""
 
+from stack_inspect_core.carrier import extract, inject
 from stack_inspect_core.context import (
     current_context,
     push_context,
@@ -21,8 +22,10 @@ __all__ = [
     "current_context",
     "emit",
     "enabled",
+    "extract",
     "fingerprint_sql",
     "format_traceparent",
+    "inject",
     "new_event_id",
     "new_span_id",
     "new_trace_id",

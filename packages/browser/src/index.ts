@@ -6,12 +6,15 @@ import {
   collectorUrl,
   emit,
   enabled,
+  extract,
   formatTraceparent,
   type GraphEvent,
   newEventId,
   newSpanId,
   newTraceId,
+  parseTraceparent,
 } from "@stack-inspect/core";
+import { installStorage as patchStorage, type StorageRecord } from "./storage";
 
 const TRACE_WINDOW_MS = 8000;
 
@@ -23,6 +26,7 @@ type ActiveTrace = {
 };
 
 let active: ActiveTrace | null = null;
+let pinned = false;
 let installed = false;
 
 /** Start patching browser APIs. No effect unless stack-inspect is enabled. */
@@ -35,6 +39,7 @@ export function install(): void {
   patchEventSource();
   patchWebSocket();
   observeVisibleResults();
+  installStorage();
   document.addEventListener(
     "click",
     (event) => {
@@ -51,12 +56,61 @@ export function install(): void {
   );
 }
 
+/**
+ * Record IndexedDB and Origin Private File System calls in this realm.
+ * Call this from a worker. `install()` already calls it on the page.
+ */
+export function installStorage(): void {
+  if (!enabled()) {
+    return;
+  }
+  patchStorage(recordStorage);
+}
+
+/**
+ * Keep ``traceparent`` as this realm's trace until the next click.
+ * A worker calls this with the carrier it was given. The 8-second click
+ * window does not apply to a trace continued this way.
+ */
+export function adoptTrace(traceparent: string): void {
+  const parsed = parseTraceparent(traceparent);
+  if (!parsed) {
+    return;
+  }
+  active = {
+    traceId: parsed.traceId,
+    spanId: parsed.spanId,
+    interactionId: "",
+    started: Date.now(),
+  };
+  pinned = true;
+}
+
+/** Run ``fn`` with the trace stored in ``carrier``, then restore the previous one. */
+export function runWithCarrier<T>(
+  carrier: Record<string, string>,
+  fn: () => T,
+): T {
+  const parsed = extract(carrier);
+  const previous = active;
+  const previousPinned = pinned;
+  if (parsed) {
+    adoptTrace(formatTraceparent(parsed.traceId, parsed.spanId));
+  }
+  try {
+    return fn();
+  } finally {
+    active = previous;
+    pinned = previousPinned;
+  }
+}
+
 /** The trace started by the most recent interaction, if it is still current. */
 export function activeTrace(): ActiveTrace | null {
   if (!active) {
     return null;
   }
-  if (Date.now() - active.started > TRACE_WINDOW_MS) {
+  if (!pinned && Date.now() - active.started > TRACE_WINDOW_MS) {
     return null;
   }
   return active;
@@ -64,7 +118,8 @@ export function activeTrace(): ActiveTrace | null {
 
 function startInteraction(name: string): void {
   const now = Date.now();
-  if (!active || now - active.started > TRACE_WINDOW_MS) {
+  if (pinned || !active || now - active.started > TRACE_WINDOW_MS) {
+    pinned = false;
     active = {
       traceId: newTraceId(),
       spanId: newSpanId(),
@@ -297,6 +352,26 @@ function pathOf(url: string): string {
     return url;
   }
 }
+
+const recordStorage: StorageRecord = (detail) => {
+  const trace = activeTrace();
+  emit(
+    browserEvent({
+      id: newEventId(),
+      name: detail.name,
+      kind: "storage",
+      phase: "instant",
+      nodeKey: `browser:storage:${detail.backend}:${detail.name}`,
+      parentId: trace?.interactionId || undefined,
+      attributes: {
+        backend: detail.backend,
+        operation: detail.operation,
+        ...(detail.bytes === undefined ? {} : { bytes: detail.bytes }),
+        ...(detail.key === undefined ? {} : { key: detail.key }),
+      },
+    }),
+  );
+};
 
 function browserEvent(
   partial: Omit<GraphEvent, "traceId" | "layer" | "ts"> & { traceId?: string },

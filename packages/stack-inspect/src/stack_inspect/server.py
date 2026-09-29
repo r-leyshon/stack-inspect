@@ -73,6 +73,7 @@ def create_app(log: EventLog) -> FastAPI:  # noqa: C901 # route registration is 
                     "kind": node.kind,
                     "layer": node.layer,
                     "name": node.name,
+                    "service": node.service,
                     "count": node.count,
                 }
                 for node in projected.nodes.values()
@@ -134,6 +135,7 @@ def _trace_summary(trace_id: str, spans: list[Span]) -> dict[str, object]:
             {
                 "name": span.name,
                 "layer": span.layer,
+                "service": span.service,
                 "kind": span.kind,
                 "nodeKey": span.node_key,
                 "start": span.start,

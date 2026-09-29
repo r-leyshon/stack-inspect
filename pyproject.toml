@@ -12,6 +12,7 @@ members = [
   "packages/stack-inspect-fastapi",
   "packages/stack-inspect-db",
   "reference/api",
+  "reference/worker",
 ]
 
 [tool.uv.sources]
@@ -20,6 +21,7 @@ stack-inspect = { workspace = true }
 stack-inspect-fastapi = { workspace = true }
 stack-inspect-db = { workspace = true }
 stack-inspect-reference-api = { workspace = true }
+stack-inspect-reference-worker = { workspace = true }
 
 [dependency-groups]
 dev = [
@@ -30,11 +32,13 @@ dev = [
   "pyright>=1.1.400",
   "pytest>=8.3",
   "ruff>=0.11",
+  "sqlalchemy>=2",
   "stack-inspect",
   "stack-inspect-core",
   "stack-inspect-db",
   "stack-inspect-fastapi",
   "stack-inspect-reference-api",
+  "stack-inspect-reference-worker",
   "uvicorn>=0.34",
 ]
 

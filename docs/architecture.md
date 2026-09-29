@@ -48,7 +48,7 @@ flowchart TB
 | DevTools adapter | Reads browser network failures through the Chrome DevTools Protocol, including CORS failure reasons, which are hidden from page JavaScript. See §6. |
 | Next.js adapter | Uses Next.js instrumentation (`instrumentation.ts`) plus Node HTTP instrumentation. Records middleware/proxy decisions, route handlers, server components and server actions. |
 | FastAPI adapter | Wraps each layer of the ASGI middleware stack, routes, streaming responses and WebSocket endpoints. Optionally records the Python call tree. |
-| Database adapter | Hooks the database driver (asyncpg, psycopg or SQLAlchemy events) to record each query, its normalised fingerprint, duration and row count. |
+| Database adapter | Hooks the database driver (asyncpg, or SQLAlchemy events on any engine) to record each query and its normalised fingerprint. Parameter values are never recorded. |
 | Collector | Local process that receives events from every adapter and appends them to the event log. |
 | Graph projector | Turns the event log into graphs and runs the analysis rules. |
 | UI | Three linked views on one page: a timeline whose lanes are the browser, Next.js, the API and the database; a force-directed dependency graph accumulated across interactions; and findings that open into an explanation of what was observed. |
@@ -97,6 +97,8 @@ For PostgreSQL, the trace ID is also appended to each query as a SQL comment ([s
 
 HTTP headers don't cover everything:
 
+- **Anything that is not HTTP** continues a trace only when the application copies it. `inject` writes the active `traceparent` into a plain string map, and `extract` reads it back. A queue property, a blob's metadata, or a job payload are all just maps. stack-inspect does not know which product they belong to.
+- A process sets `STACK_INSPECT_SERVICE` to name itself. The UI uses that name when a trace contains more than one service. The name is not a fixed list of roles.
 - **CORS preflights** are sent by the browser itself and don't carry our headers. See §6.
 - **`EventSource` and `WebSocket`** in the browser can't set custom headers. See §7.
 
