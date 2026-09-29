@@ -64,7 +64,7 @@
       margin-top: 0.45rem;
     }
     .hint { position: relative; display: inline-flex; }
-    header .hint { margin-left: auto; }
+    header .hint { margin-left: 0; }
     .info {
       position: absolute;
       top: -0.4rem;
@@ -178,6 +178,50 @@
     input[type="search"] { width: 180px; }
     .tool[aria-pressed="true"] { border-color: var(--text); }
     .tool { cursor: pointer; }
+    .header-actions {
+      margin-left: auto;
+      display: flex;
+      align-items: center;
+      gap: 0.45rem;
+    }
+    .menu { position: relative; }
+    .menu-panel {
+      position: absolute;
+      top: calc(100% + 6px);
+      right: 0;
+      z-index: 6;
+      min-width: 11rem;
+      background: #1c222b;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 0.35rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.15rem;
+    }
+    .menu-panel[hidden] { display: none; }
+    .menu-panel button {
+      text-align: left;
+      background: transparent;
+      color: var(--text);
+      border: 0;
+      border-radius: 6px;
+      padding: 0.4rem 0.55rem;
+      font: inherit;
+      font-size: 0.78rem;
+      cursor: pointer;
+    }
+    .menu-panel button:hover { background: #222831; }
+    .include-events {
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+      color: var(--muted);
+      font-size: 0.75rem;
+      padding: 0.4rem 0.55rem 0.25rem;
+      border-top: 1px solid var(--line);
+      margin-top: 0.15rem;
+    }
     #tip {
       position: absolute;
       display: none;
@@ -202,10 +246,17 @@
   <header>
     <h1><span class="live"></span>stack-inspect</h1>
     <p id="status">The graph is built from the app as you use it.</p>
-    <span class="hint">
+    <div class="header-actions">
+      <div class="menu">
+        <button class="tool" type="button" id="export" aria-expanded="false" aria-controls="export-menu">Export</button>
+        <div id="export-menu" class="menu-panel" hidden>
+          <button type="button" data-format="md">Markdown</button>
+          <button type="button" data-format="json">JSON</button>
+          <label class="include-events"><input id="include-events" type="checkbox" /> Include events</label>
+        </div>
+      </div>
       <button class="tool" type="button" id="reset">Reset</button>
-      <button type="button" class="info" data-help="reset" aria-label="About Reset">i</button>
-    </span>
+    </div>
   </header>
   <aside id="traces-panel">
     <div class="section-title">
@@ -720,6 +771,49 @@
       state.query = event.target.value.trim().toLowerCase();
     });
 
+    const exportButton = document.getElementById("export");
+    const exportMenu = document.getElementById("export-menu");
+
+    function closeExportMenu() {
+      exportMenu.hidden = true;
+      exportButton.setAttribute("aria-expanded", "false");
+    }
+
+    function downloadReport(format) {
+      const params = new URLSearchParams();
+      params.set("format", format);
+      params.set("assets", state.hideAssets ? "0" : "1");
+      const includeEvents = document.getElementById("include-events");
+      if (includeEvents instanceof HTMLInputElement && includeEvents.checked) {
+        params.set("events", "1");
+      }
+      if (state.scope === "trace" && state.selected) {
+        params.set("trace", state.selected);
+      }
+      const link = document.createElement("a");
+      link.href = `/v1/report?${params}`;
+      link.download = "";
+      link.click();
+    }
+
+    exportButton.addEventListener("click", (event) => {
+      event.stopPropagation();
+      const open = exportMenu.hidden;
+      exportMenu.hidden = !open;
+      exportButton.setAttribute("aria-expanded", open ? "true" : "false");
+    });
+
+    exportMenu.addEventListener("click", (event) => {
+      const choice = event.target.closest("[data-format]");
+      if (!choice) return;
+      downloadReport(choice.dataset.format || "md");
+      closeExportMenu();
+    });
+
+    document.addEventListener("click", (event) => {
+      if (!event.target.closest(".menu")) closeExportMenu();
+    });
+
     document.getElementById("reset").addEventListener("click", async () => {
       await fetch("/v1/events", { method: "DELETE" });
       state.traces = [];
@@ -748,7 +842,6 @@
       layers: "Each button hides or shows dots from that part of the stack. They all start on.",
       assets: "Hides files Next.js loads just to draw the page: names containing /_next/ or webpack. It starts on. Turn it off to see those files, then press Fit.",
       fit: "Recentres and zooms so every dot currently shown fits on the screen.",
-      reset: "Deletes the recorded log and clears the traces, the timeline, the graph and the findings. The next thing you do in the app starts a new recording, and Live turns back on.",
       findings: "Notes about what looks off in a story, such as a query that ran many times. Open one to read what it means. That also selects its trace and turns Live off.",
     };
 

@@ -10,6 +10,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 
 from stack_inspect.model import validate_event
 from stack_inspect.projector import Span, project
+from stack_inspect.report import build_report, render_markdown
 from stack_inspect.rules import analyse
 
 if TYPE_CHECKING:
@@ -114,6 +115,27 @@ def create_app(log: EventLog) -> FastAPI:  # noqa: C901 # route registration is 
         summaries = [_trace_summary(trace_id, spans) for trace_id, spans in projected.spans_by_trace.items()]
         summaries.sort(key=lambda summary: summary["started"] if isinstance(summary["started"], int | float) else 0)
         return {"traces": summaries}
+
+    @app.get("/v1/report")
+    def report(trace: str | None = None, assets: int = 0, events: int = 0, format: str = "md") -> Response:  # noqa: A002 # format matches the query parameter a client sends
+        """Download a digest of the log. Markdown by default, JSON when asked."""
+        body = build_report(
+            log.all_events(),
+            trace_id=trace or None,
+            include_assets=assets == 1,
+            include_events=events == 1,
+        )
+        if format == "json":
+            return JSONResponse(
+                body,
+                headers={"content-disposition": 'attachment; filename="stack-inspect.json"'},
+            )
+        markdown = render_markdown(body)
+        return Response(
+            markdown,
+            media_type="text/markdown; charset=utf-8",
+            headers={"content-disposition": 'attachment; filename="stack-inspect.md"'},
+        )
 
     @app.get("/", response_class=HTMLResponse)
     def index() -> str:
