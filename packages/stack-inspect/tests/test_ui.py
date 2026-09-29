@@ -32,6 +32,8 @@ def test_page_draws_the_graph_and_traces_carry_layers(tmp_path: Path) -> None:
     page = client.get("/")
     assert page.is_success
     assert 'id="graph"' in page.text
+    assert 'id="reset"' in page.text
+    assert 'data-help="live"' in page.text
     assert "hides the status" in page.text
     span = client.get("/v1/traces").json()["traces"][0]["spans"][0]
     assert span["layer"] == "api"

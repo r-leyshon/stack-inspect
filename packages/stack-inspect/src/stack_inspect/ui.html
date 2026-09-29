@@ -29,27 +29,73 @@
     header {
       grid-column: 1 / -1;
       display: flex;
-      align-items: baseline;
+      align-items: center;
       gap: 1rem;
       padding: 0.7rem 1rem;
       border-bottom: 1px solid var(--line);
     }
+    #reset { margin-left: 0; }
     header h1 { font-size: 0.95rem; font-weight: 600; margin: 0; letter-spacing: 0.01em; }
     header p { margin: 0; color: var(--muted); font-size: 0.8rem; }
     .live { width: 0.45rem; height: 0.45rem; border-radius: 50%; background: var(--api); display: inline-block; margin-right: 0.35rem; }
     aside, main { min-height: 0; min-width: 0; }
     #traces-panel, #findings-panel { background: var(--panel); overflow: auto; }
     #traces-panel { border-right: 1px solid var(--line); }
+    #traces-panel, #findings-panel, #timeline-wrap { position: relative; }
     #findings-panel { border-left: 1px solid var(--line); }
     h2 {
       margin: 0;
-      padding: 0.75rem 0.9rem 0.35rem;
+      padding: 0.75rem 0 0.35rem;
       font-size: 0.72rem;
       letter-spacing: 0.08em;
       text-transform: uppercase;
       color: var(--muted);
       font-weight: 600;
     }
+    .section-title {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      padding: 0.55rem 0.65rem 0 0.9rem;
+    }
+    .section-title h2 { padding-left: 0; }
+    .info.panel-help {
+      position: static;
+      margin-top: 0.45rem;
+    }
+    .hint { position: relative; display: inline-flex; }
+    header .hint { margin-left: auto; }
+    .info {
+      position: absolute;
+      top: -0.4rem;
+      right: -0.4rem;
+      z-index: 2;
+      width: 0.95rem;
+      height: 0.95rem;
+      border-radius: 50%;
+      border: 1px solid var(--line);
+      background: var(--panel);
+      color: var(--muted);
+      font: inherit;
+      font-size: 0.62rem;
+      line-height: 1;
+      padding: 0;
+    }
+    .info:hover { color: var(--text); border-color: var(--text); }
+    #help {
+      position: fixed;
+      z-index: 5;
+      max-width: 280px;
+      background: #1c222b;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 0.6rem 0.7rem;
+      font-size: 0.78rem;
+      line-height: 1.45;
+      color: var(--text);
+      pointer-events: none;
+    }
+    #help[hidden] { display: none; }
     ul { list-style: none; margin: 0; padding: 0 0.45rem 1rem; }
     #traces li button, .finding {
       width: 100%;
@@ -104,15 +150,22 @@
       display: flex;
       flex-direction: column;
     }
+    .graph-help {
+      position: absolute;
+      top: 0.45rem;
+      right: 0.55rem;
+      z-index: 3;
+    }
     canvas { width: 100%; flex: 1; min-height: 0; display: block; cursor: grab; }
     canvas.dragging { cursor: grabbing; }
     .graph-tools {
       display: flex;
-      gap: 0.4rem;
+      gap: 0.55rem 0.7rem;
       flex-wrap: wrap;
-      align-items: center;
-      padding: 0.55rem 0.7rem 0.2rem;
+      align-items: flex-start;
+      padding: 0.85rem 0.85rem 0.35rem;
     }
+    .layer-group { display: inline-flex; gap: 0.4rem; }
     input[type="search"], .tool {
       background: #12161ccc;
       color: var(--text);
@@ -149,33 +202,69 @@
   <header>
     <h1><span class="live"></span>stack-inspect</h1>
     <p id="status">The graph is built from the app as you use it.</p>
+    <span class="hint">
+      <button class="tool" type="button" id="reset">Reset</button>
+      <button type="button" class="info" data-help="reset" aria-label="About Reset">i</button>
+    </span>
   </header>
   <aside id="traces-panel">
-    <h2>Traces</h2>
+    <div class="section-title">
+      <h2>Traces</h2>
+      <button type="button" class="info panel-help" data-help="traces" aria-label="About traces">i</button>
+    </div>
     <ul id="traces"></ul>
   </aside>
   <main>
     <section id="timeline-wrap" aria-label="Timeline">
-      <h2>Timeline</h2>
+      <div class="section-title">
+        <h2>Timeline</h2>
+        <button type="button" class="info panel-help" data-help="timeline" aria-label="About the timeline">i</button>
+      </div>
       <div id="lanes"></div>
     </section>
     <section id="graph-wrap" aria-label="Dependency graph">
       <div class="graph-tools">
-        <input id="search" type="search" placeholder="Filter nodes" aria-label="Filter nodes" />
-        <button class="tool" type="button" id="scope" aria-pressed="true">This trace</button>
-        <button class="tool" type="button" data-layer="browser" aria-pressed="true">Browser</button>
-        <button class="tool" type="button" data-layer="next" aria-pressed="true">Next.js</button>
-        <button class="tool" type="button" data-layer="api" aria-pressed="true">API</button>
-        <button class="tool" type="button" data-layer="db" aria-pressed="true">Database</button>
-        <button class="tool" type="button" id="assets" aria-pressed="true">Hide assets</button>
-        <button class="tool" type="button" id="fit">Fit</button>
+        <span class="hint">
+          <input id="search" type="search" placeholder="Filter nodes" aria-label="Filter nodes" />
+          <button type="button" class="info" data-help="search" aria-label="About the filter">i</button>
+        </span>
+        <span class="hint">
+          <button class="tool" type="button" id="live" aria-pressed="true">Live</button>
+          <button type="button" class="info" data-help="live" aria-label="About Live">i</button>
+        </span>
+        <span class="hint">
+          <button class="tool" type="button" id="scope" aria-pressed="true">This trace</button>
+          <button type="button" class="info" data-help="scope" aria-label="About This trace">i</button>
+        </span>
+        <span class="hint">
+          <span class="layer-group">
+            <button class="tool" type="button" data-layer="browser" aria-pressed="true">Browser</button>
+            <button class="tool" type="button" data-layer="next" aria-pressed="true">Next.js</button>
+            <button class="tool" type="button" data-layer="api" aria-pressed="true">API</button>
+            <button class="tool" type="button" data-layer="db" aria-pressed="true">Database</button>
+          </span>
+          <button type="button" class="info" data-help="layers" aria-label="About the layer buttons">i</button>
+        </span>
+        <span class="hint">
+          <button class="tool" type="button" id="assets" aria-pressed="true">Hide assets</button>
+          <button type="button" class="info" data-help="assets" aria-label="About Hide assets">i</button>
+        </span>
+        <span class="hint">
+          <button class="tool" type="button" id="fit">Fit</button>
+          <button type="button" class="info" data-help="fit" aria-label="About Fit">i</button>
+        </span>
       </div>
+      <button type="button" class="info graph-help" data-help="graph" aria-label="About the graph">i</button>
       <canvas id="graph"></canvas>
       <div id="tip"></div>
     </section>
+  <div id="help" hidden></div>
   </main>
   <aside id="findings-panel">
-    <h2>Findings</h2>
+    <div class="section-title">
+      <h2>Findings</h2>
+      <button type="button" class="info panel-help" data-help="findings" aria-label="About findings">i</button>
+    </div>
     <ul id="findings"></ul>
     <div id="explain" class="explain" hidden></div>
   </aside>
@@ -211,6 +300,7 @@
       openFinding: "",
       query: "",
       scope: "trace",
+      live: true,
       hideAssets: true,
       layers: new Set(["browser", "next", "api", "db"]),
       camera: { x: 0, y: 0, k: 1 },
@@ -245,6 +335,11 @@
 
     function isBackground(span) {
       return isAsset(span.name) || span.name === "GET /health" || span.kind === "middleware";
+    }
+
+    function latestActivity(trace) {
+      const times = trace.spans.map((span) => span.end || span.start);
+      return Math.max(trace.started || 0, ...times);
     }
 
     function interest(trace) {
@@ -290,12 +385,17 @@
       const ends = trace.spans.map((span) => span.end);
       const origin = Math.min(...starts);
       const span = Math.max(1, Math.max(...ends) - origin);
-      host.innerHTML = LAYERS.map(([layer, label]) => {
-        const bars = trace.spans.filter((item) => item.layer === layer).map((item) => {
+      const services = [...new Set(trace.spans.map((item) => item.service).filter(Boolean))];
+      const lanes = services.length > 1
+        ? services.map((name) => [name, name, "#c8c2b6"])
+        : LAYERS;
+      host.innerHTML = lanes.map(([layer, label]) => {
+        const bars = trace.spans.filter((item) => (services.length > 1 ? item.service === layer : item.layer === layer)).map((item) => {
           const left = ((item.start - origin) / span) * 100;
           const width = Math.max(1.2, ((item.end - item.start) / span) * 100);
-          return `<button type="button" class="bar layer-${layer}" data-node="${escapeText(item.nodeKey)}" ` +
-            `style="left:${left}%;width:${width}%" title="${escapeText(item.name)}">${escapeText(item.name)}</button>`;
+          const colour = LAYER_COLOR[item.layer] || "#c8c2b6";
+          return `<button type="button" class="bar" data-node="${escapeText(item.nodeKey)}" ` +
+            `style="left:${left}%;width:${width}%;background:${colour}" title="${escapeText(item.name)}">${escapeText(item.name)}</button>`;
         }).join("");
         if (!bars) return "";
         return `<div class="lane"><div class="lane-label">${label}</div><div class="track">${bars}</div></div>`;
@@ -526,7 +626,8 @@
       tip.style.display = "block";
       tip.style.left = `${x + 12}px`;
       tip.style.top = `${y + 12}px`;
-      tip.textContent = `${node.name}\n${LAYER_LABEL[node.layer] || node.layer} · ${node.kind} · seen ${node.count}\n${links.length} link${links.length === 1 ? "" : "s"}`;
+      const service = node.service ? `${node.service} · ` : "";
+      tip.textContent = `${node.name}\n${service}${LAYER_LABEL[node.layer] || node.layer} · ${node.kind} · seen ${node.count}\n${links.length} link${links.length === 1 ? "" : "s"}`;
     }
 
     function fit() {
@@ -551,13 +652,18 @@
       state.traces = traces.traces;
       state.findings = findings.findings;
       const listed = listedTraces();
-      if (!listed.some((trace) => trace.traceId === state.selected)) {
+      const selectedBefore = state.selected;
+      if (state.live && listed.length > 0) {
+        const ranked = [...listed].sort((left, right) => latestActivity(left) - latestActivity(right));
+        state.selected = ranked.at(-1)?.traceId || "";
+      } else if (!listed.some((trace) => trace.traceId === state.selected)) {
         const ranked = [...listed].sort((left, right) => interest(left) - interest(right));
         state.selected = ranked.at(-1)?.traceId || "";
       }
-      const before = state.nodes.size;
+      const visibleBefore = new Set(visibleNodes().map((node) => node.nodeKey));
       syncGraph(graph);
-      if (before === 0 && state.nodes.size > 0) requestAnimationFrame(fit);
+      const grew = visibleNodes().some((node) => !visibleBefore.has(node.nodeKey));
+      if ((grew || state.selected !== selectedBefore) && !state.drag) requestAnimationFrame(fit);
       const nodes = state.nodes.size;
       const edges = state.edges.length;
       document.getElementById("status").textContent =
@@ -573,6 +679,8 @@
       const button = event.target.closest("button[data-trace]");
       if (!button) return;
       state.selected = button.dataset.trace;
+      state.live = false;
+      document.getElementById("live").setAttribute("aria-pressed", "false");
       state.scope = "trace";
       document.getElementById("scope").setAttribute("aria-pressed", "true");
       document.getElementById("scope").textContent = "This trace";
@@ -597,6 +705,8 @@
       if (!button) return;
       state.openFinding = state.openFinding === button.dataset.finding ? "" : button.dataset.finding;
       state.selected = button.dataset.trace;
+      state.live = false;
+      document.getElementById("live").setAttribute("aria-pressed", "false");
       state.scope = "trace";
       document.getElementById("scope").setAttribute("aria-pressed", "true");
       document.getElementById("scope").textContent = "This trace";
@@ -608,6 +718,71 @@
 
     document.getElementById("search").addEventListener("input", (event) => {
       state.query = event.target.value.trim().toLowerCase();
+    });
+
+    document.getElementById("reset").addEventListener("click", async () => {
+      await fetch("/v1/events", { method: "DELETE" });
+      state.traces = [];
+      state.findings = [];
+      state.nodes.clear();
+      state.edges = [];
+      state.selected = "";
+      state.focus = "";
+      state.openFinding = "";
+      state.live = true;
+      document.getElementById("live").setAttribute("aria-pressed", "true");
+      renderTraces();
+      renderTimeline();
+      renderFindings();
+      document.getElementById("status").textContent =
+        "Cleared. The next thing you do in the app starts a new recording.";
+    });
+
+    const HELP = {
+      traces: "Each row is one story: a click or a job, and everything that shared its trace. Select a row to hold that story still. That turns Live off.",
+      timeline: "Bars are what ran, from left to right. Each row is one lane: a part of the stack that took part in this story. When more than one named process shared the story, the rows use those process names instead. A lane only appears if something in it actually ran.",
+      graph: "Each dot is something that ran. A line means one event recorded that it happened inside another, or because of another. Sharing a trace does not draw a line, so jobs and worker can be in the same story with nothing joining them. Drag the background to move around, scroll to zoom, and drag a dot to pin it. Hover a dot to see what it connects to.",
+      search: "Type part of a name to hide dots that do not match. Clear the box to show them again.",
+      live: "Follows whatever just happened and recentres the picture. Choosing a trace in the list turns this off. Press it again to follow the newest story.",
+      scope: "This trace shows only the story selected on the left, plus anything already joined to it by a line. All activity shows every story from this session. Press Fit if the extra dots sit outside the view. Hide assets is on by default, so many of those extra dots stay hidden.",
+      layers: "Each button hides or shows dots from that part of the stack. They all start on.",
+      assets: "Hides files Next.js loads just to draw the page: names containing /_next/ or webpack. It starts on. Turn it off to see those files, then press Fit.",
+      fit: "Recentres and zooms so every dot currently shown fits on the screen.",
+      reset: "Deletes the recorded log and clears the traces, the timeline, the graph and the findings. The next thing you do in the app starts a new recording, and Live turns back on.",
+      findings: "Notes about what looks off in a story, such as a query that ran many times. Open one to read what it means. That also selects its trace and turns Live off.",
+    };
+
+    const help = document.getElementById("help");
+
+    function closeHelp() {
+      help.hidden = true;
+      help.dataset.for = "";
+      for (const button of document.querySelectorAll(".info[aria-expanded='true']")) {
+        button.setAttribute("aria-expanded", "false");
+      }
+    }
+
+    function openHelp(button) {
+      const id = button.dataset.help;
+      closeHelp();
+      help.hidden = false;
+      help.dataset.for = id;
+      help.textContent = HELP[id] || "";
+      const rect = button.getBoundingClientRect();
+      const width = 280;
+      help.style.left = `${Math.max(8, Math.min(rect.left, window.innerWidth - width - 8))}px`;
+      help.style.top = `${Math.min(rect.bottom + 8, window.innerHeight - 120)}px`;
+    }
+
+    for (const button of document.querySelectorAll(".info")) {
+      button.addEventListener("pointerenter", () => openHelp(button));
+      button.addEventListener("pointerleave", closeHelp);
+    }
+
+    document.getElementById("live").addEventListener("click", (event) => {
+      state.live = !state.live;
+      event.target.setAttribute("aria-pressed", state.live ? "true" : "false");
+      if (state.live) refresh();
     });
 
     document.getElementById("scope").addEventListener("click", (event) => {
