@@ -126,14 +126,80 @@
     main { display: grid; grid-template-rows: minmax(168px, 32%) minmax(0, 1fr); }
     #timeline-wrap, #graph-wrap { min-height: 0; position: relative; }
     #timeline-wrap { border-bottom: 1px solid var(--line); display: flex; flex-direction: column; }
-    #lanes { flex: 1; overflow: auto; padding: 0.4rem 0.8rem 0.7rem; }
-    .lane { display: grid; grid-template-columns: 88px minmax(0, 1fr); gap: 0.5rem; align-items: center; min-height: 34px; }
-    .lane-label { font-size: 0.72rem; color: var(--muted); }
-    .track { position: relative; height: 26px; background: #101318; border-radius: 6px; }
+    #tracks { grid-column: 1 / -1; grid-row: 2; overflow: auto; min-height: 0; min-width: 0; display: flex; flex-direction: column; }
+    #arrange {
+      flex: 1;
+      min-height: 0;
+      display: grid;
+      grid-template-columns: 92px minmax(0, 1fr);
+      grid-template-rows: 28px minmax(0, 1fr);
+      position: relative;
+      background: #0e1116;
+      border-top: 1px solid var(--line);
+    }
+    .arrange-corner { grid-column: 1; grid-row: 1; border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); background: #14181e; }
+    #ruler {
+      grid-column: 2;
+      grid-row: 1;
+      position: relative;
+      cursor: ew-resize;
+      border-bottom: 1px solid var(--line);
+      background: #161b22;
+      overflow: hidden;
+    }
+    .tick {
+      position: absolute;
+      top: 0;
+      height: 100%;
+      border-left: 1px solid #ffffff22;
+      color: var(--muted);
+      font-size: 0.62rem;
+      padding: 0.35rem 0 0 0.28rem;
+      white-space: nowrap;
+    }
+    .lane { display: grid; width: 100%; grid-template-columns: 92px minmax(0, 1fr); align-items: stretch; flex: 1 1 0; min-height: 52px; border-bottom: 1px solid #ffffff10; }
+    .lane-label { font-size: 0.72rem; color: var(--muted); padding: 0.45rem 0.55rem; background: #14181e; border-right: 1px solid var(--line); display: flex; align-items: center; }
+    .track {
+      position: relative;
+      width: 100%;
+      min-width: 0;
+      height: 100%;
+      min-height: 52px;
+      background-color: #10141a;
+      background-image: repeating-linear-gradient(90deg, transparent, transparent calc(12.5% - 1px), #ffffff12 12.5%);
+    }
+    .timeline-actions { display: flex; align-items: center; gap: 0.55rem; }
+    .timeline-actions .info.panel-help { margin-top: 0; }
+    #timecode { font-variant-numeric: tabular-nums; font-size: 0.75rem; color: var(--text); min-width: 12.5rem; }
+    .bar.upcoming { opacity: 0; min-width: 0; padding: 0; pointer-events: none; }
+    .bar.quiet { opacity: 0.34; }
+    .bar.here { box-shadow: inset 0 0 0 1px #ffffffcc; }
+    #playhead {
+      position: absolute;
+      top: 0;
+      bottom: 0;
+      width: 0;
+      border-left: 1px solid #ff8a3d;
+      z-index: 4;
+      pointer-events: none;
+    }
+    #playhead[hidden] { display: none; }
+    .playhead-cap {
+      pointer-events: auto;
+      position: absolute;
+      top: 3px;
+      left: -7px;
+      width: 14px;
+      height: 12px;
+      background: #ff8a3d;
+      clip-path: polygon(0 0, 100% 0, 50% 100%);
+      cursor: ew-resize;
+    }
     .bar {
       position: absolute;
-      top: 4px;
-      height: 18px;
+      top: 50%;
+      height: 22px;
+      margin-top: -11px;
       border: 0;
       border-radius: 4px;
       color: #121418;
@@ -143,7 +209,7 @@
       white-space: nowrap;
       text-overflow: ellipsis;
       cursor: pointer;
-      min-width: 8px;
+      min-width: 0;
     }
     #graph-wrap {
       background: radial-gradient(circle at 50% 40%, #1b2129, #101318 70%);
@@ -270,9 +336,18 @@
     <section id="timeline-wrap" aria-label="Timeline">
       <div class="section-title">
         <h2>Timeline</h2>
-        <button type="button" class="info panel-help" data-help="timeline" aria-label="About the timeline">i</button>
+        <div class="timeline-actions">
+          <button class="tool" type="button" id="transport" aria-pressed="false">Play</button>
+          <span id="timecode">Playhead at the end</span>
+          <button type="button" class="info panel-help" data-help="timeline" aria-label="About the timeline">i</button>
+        </div>
       </div>
-      <div id="lanes"></div>
+      <div id="arrange">
+        <div class="arrange-corner" aria-hidden="true"></div>
+        <div id="ruler" role="slider" aria-label="Timeline position" aria-valuemin="0" aria-valuemax="100" tabindex="0"></div>
+        <div id="tracks"></div>
+        <div id="playhead" hidden><span class="playhead-cap"></span></div>
+      </div>
     </section>
     <section id="graph-wrap" aria-label="Dependency graph">
       <div class="graph-tools">
@@ -300,6 +375,10 @@
         <span class="hint">
           <button class="tool" type="button" id="assets" aria-pressed="true">Hide assets</button>
           <button type="button" class="info" data-help="assets" aria-label="About Hide assets">i</button>
+        </span>
+        <span class="hint">
+          <button class="tool" type="button" id="names" aria-pressed="false">Names</button>
+          <button type="button" class="info" data-help="names" aria-label="About Names">i</button>
         </span>
         <span class="hint">
           <button class="tool" type="button" id="fit">Fit</button>
@@ -356,6 +435,16 @@
       reading: false,
       sourceNote: "",
       hideAssets: true,
+      showNames: false,
+      playing: false,
+      cursor: null,
+      playAnim: 0,
+      playFrom: 0,
+      playTo: 0,
+      playWall: 0,
+      seenAt: new Map(),
+      highWater: null,
+      laidOut: new Set(),
       layers: new Set(["browser", "next", "api", "db"]),
       camera: { x: 0, y: 0, k: 1 },
       hover: "",
@@ -402,9 +491,18 @@
       return interaction + layers.size;
     }
 
-    function listedTraces() {
+    function recordedTraces() {
       const useful = state.traces.filter((trace) => trace.spans.some((span) => !isBackground(span)));
       return useful.length > 0 ? useful : state.traces;
+    }
+
+    function listedTraces() {
+      const chosen = recordedTraces();
+      const at = cutoff();
+      if (at == null) return chosen;
+      return chosen.filter((trace) =>
+        trace.started <= at || trace.spans.some((span) => span.start <= at)
+      );
     }
 
     function renderTraces() {
@@ -429,37 +527,203 @@
     }
 
     function renderTimeline() {
-      const host = document.getElementById("lanes");
-      const trace = selectedTrace();
-      if (!trace || trace.spans.length === 0) {
-        host.innerHTML = `<p class="empty">Choose a trace. Bars sit on the layer that did the work.</p>`;
+      const host = document.getElementById("tracks");
+      const ruler = document.getElementById("ruler");
+      const arranged = buildArrangement();
+      if (arranged.stories.length === 0) {
+        host.innerHTML = `<p class="empty">Use the app. Each click becomes clips on the timeline.</p>`;
+        ruler.innerHTML = "";
+        placePlayhead();
         return;
       }
-      const starts = trace.spans.map((span) => span.start);
-      const ends = trace.spans.map((span) => span.end);
-      const origin = Math.min(...starts);
-      const span = Math.max(1, Math.max(...ends) - origin);
-      const services = [...new Set(trace.spans.map((item) => item.service).filter(Boolean))];
-      const lanes = services.length > 1
-        ? services.map((name) => [name, name, "#c8c2b6"])
-        : LAYERS;
-      host.innerHTML = lanes.map(([layer, label]) => {
-        const bars = trace.spans.filter((item) => (services.length > 1 ? item.service === layer : item.layer === layer)).map((item) => {
-          const left = ((item.start - origin) / span) * 100;
-          const width = Math.max(1.2, ((item.end - item.start) / span) * 100);
-          const colour = LAYER_COLOR[item.layer] || "#c8c2b6";
-          return `<button type="button" class="bar" data-node="${escapeText(item.nodeKey)}" ` +
-            `style="left:${left}%;width:${width}%;background:${colour}" title="${escapeText(item.name)}">${escapeText(item.name)}</button>`;
-        }).join("");
-        if (!bars) return "";
-        return `<div class="lane"><div class="lane-label">${label}</div><div class="track">${bars}</div></div>`;
-      }).join("") || `<p class="empty">This trace has no timed spans yet.</p>`;
+      const span = Math.max(1, arranged.end);
+      ruler.innerHTML = Array.from({ length: 9 }, (_, index) => {
+        const left = (index / 8) * 100;
+        return `<span class="tick" style="left:${left}%">${formatOffset((span * index) / 8, span)}</span>`;
+      }).join("");
+      const quiet = state.scope === "trace" && !state.playing;
+      host.innerHTML = LAYERS.map(([layer, label]) => {
+        const bars = [];
+        for (const story of arranged.stories) {
+          for (const item of story.trace.spans) {
+            if (item.layer !== layer) continue;
+            const colour = LAYER_COLOR[item.layer] || "#c8c2b6";
+            const start = story.displayStart + story.map.display(item.start);
+            const end = story.displayStart + story.map.display(item.end || item.start);
+            const classes = ["bar"];
+            if (quiet && story.trace.traceId !== state.selected) classes.push("quiet");
+            if (story.trace.traceId === state.selected) classes.push("here");
+            bars.push(
+              `<button type="button" class="${classes.join(" ")}" data-node="${escapeText(item.nodeKey)}" ` +
+              `data-start="${start}" data-end="${Math.max(end, start)}" ` +
+              `style="background:${colour}" title="${escapeText(item.name)}">${escapeText(item.name)}</button>`,
+            );
+          }
+        }
+        if (bars.length === 0) return "";
+        return `<div class="lane"><div class="lane-label">${label}</div><div class="track">${bars.join("")}</div></div>`;
+      }).join("") || `<p class="empty">Nothing timed has been recorded yet.</p>`;
+      layoutClips();
+      placePlayhead();
+    }
+
+    function formatOffset(milliseconds, scale) {
+      const basis = scale == null ? milliseconds : scale;
+      if (basis < 2000) return `${Math.round(milliseconds)}ms`;
+      const total = Math.max(0, milliseconds) / 1000;
+      const minutes = Math.floor(total / 60);
+      const seconds = (total - minutes * 60).toFixed(1).padStart(4, "0");
+      return `${minutes}:${seconds}`;
+    }
+
+    function clockOf(trace) {
+      const points = [...new Set(trace.spans.flatMap((span) => [span.start, span.end || span.start]))].sort(
+        (left, right) => left - right,
+      );
+      const displayAt = [0];
+      for (let index = 1; index < points.length; index += 1) {
+        displayAt.push(displayAt[index - 1] + Math.min(points[index] - points[index - 1], 80));
+      }
+      const raw = displayAt[displayAt.length - 1];
+      const length = Math.max(raw, 28);
+      const display = (time) => {
+        if (points.length === 1 || time <= points[0]) return 0;
+        for (let index = 1; index < points.length; index += 1) {
+          if (time > points[index]) continue;
+          const shown = displayAt[index] - displayAt[index - 1];
+          const wall = points[index] - points[index - 1] || 1;
+          return displayAt[index - 1] + ((time - points[index - 1]) / wall) * shown;
+        }
+        return raw;
+      };
+      const wall = (offset) => {
+        if (points.length === 1) return points[0];
+        const at = Math.min(Math.max(offset, 0), raw);
+        for (let index = 1; index < displayAt.length; index += 1) {
+          if (at > displayAt[index]) continue;
+          const shown = displayAt[index] - displayAt[index - 1] || 1;
+          const fraction = (at - displayAt[index - 1]) / shown;
+          return points[index - 1] + fraction * (points[index] - points[index - 1]);
+        }
+        return points[points.length - 1];
+      };
+      return { origin: points[0], end: points[points.length - 1], length, display, wall };
+    }
+
+    function buildArrangement() {
+      const ordered = recordedTraces()
+        .filter((trace) => trace.spans.length > 0)
+        .map((trace) => ({ trace, map: clockOf(trace) }))
+        .sort((left, right) => left.map.origin - right.map.origin || left.trace.traceId.localeCompare(right.trace.traceId));
+      let cursor = 0;
+      const stories = ordered.map((item) => {
+        const story = {
+          trace: item.trace,
+          map: item.map,
+          displayStart: cursor,
+          displayEnd: cursor + item.map.length,
+        };
+        cursor += item.map.length + 56;
+        return story;
+      });
+      return { stories, end: stories.length ? stories[stories.length - 1].displayEnd : 0 };
+    }
+
+    function playheadDisplay(arranged) {
+      if (state.cursor == null) return arranged.end;
+      return Math.min(arranged.end, Math.max(0, state.cursor));
+    }
+
+    function wallNow() {
+      const arranged = buildArrangement();
+      if (arranged.stories.length === 0) return null;
+      const display = playheadDisplay(arranged);
+      let revealed = arranged.stories[0].map.origin;
+      for (const story of arranged.stories) {
+        if (display < story.displayStart) return revealed;
+        if (display >= story.displayEnd) {
+          revealed = Math.max(revealed, story.map.end);
+          continue;
+        }
+        return Math.max(revealed, story.map.wall(display - story.displayStart));
+      }
+      return revealed;
+    }
+
+    function cutoff() {
+      const at = wallNow();
+      if (at == null) return null;
+      if (state.cursor == null && !state.playing) {
+        state.highWater = null;
+        return at;
+      }
+      if (state.highWater == null || at + 0.5 >= state.highWater) {
+        state.highWater = state.highWater == null ? at : Math.max(state.highWater, at);
+        return state.highWater;
+      }
+      state.highWater = at;
+      return at;
+    }
+
+    function placePlayhead() {
+      const head = document.getElementById("playhead");
+      const ruler = document.getElementById("ruler");
+      const arrange = document.getElementById("arrange");
+      const readout = document.getElementById("timecode");
+      const arranged = buildArrangement();
+      if (arranged.stories.length === 0 || ruler.getBoundingClientRect().width === 0) {
+        head.hidden = true;
+        readout.textContent = "No story on the timeline";
+        ruler.setAttribute("aria-valuenow", "0");
+        return;
+      }
+      const at = playheadDisplay(arranged);
+      const duration = Math.max(arranged.end, 1);
+      const fraction = Math.min(1, Math.max(0, at / duration));
+      const rulerBox = ruler.getBoundingClientRect();
+      const arrangeBox = arrange.getBoundingClientRect();
+      head.hidden = false;
+      head.style.left = `${rulerBox.left - arrangeBox.left + fraction * rulerBox.width}px`;
+      readout.textContent = `Playhead ${formatOffset(at, duration)} of ${formatOffset(duration, duration)}`;
+      ruler.setAttribute("aria-valuenow", String(Math.round(fraction * 100)));
+    }
+
+    function layoutClips() {
+      const ruler = document.getElementById("ruler");
+      const arranged = buildArrangement();
+      const width = ruler.clientWidth;
+      if (arranged.stories.length === 0) return;
+      if (width === 0) {
+        requestAnimationFrame(layoutClips);
+        return;
+      }
+      const duration = Math.max(arranged.end, 1);
+      const playX = (playheadDisplay(arranged) / duration) * width;
+      for (const bar of document.querySelectorAll("#tracks .bar")) {
+        const start = Number(bar.dataset.start);
+        const end = Number(bar.dataset.end);
+        const startX = (start / duration) * width;
+        const endX = (Math.max(end, start) / duration) * width;
+        const reached = playX + 0.5 >= startX;
+        bar.classList.toggle("upcoming", !reached);
+        if (!reached) {
+          bar.style.left = `${startX}px`;
+          bar.style.width = "0px";
+          continue;
+        }
+        const drawn = Math.min(width, Math.max(14, endX - startX));
+        const left = Math.max(0, Math.min(startX, width - drawn));
+        bar.style.left = `${left}px`;
+        bar.style.width = `${drawn}px`;
+      }
     }
 
     function renderFindings() {
       const list = document.getElementById("findings");
       const explain = document.getElementById("explain");
-      const markup = state.findings.map((finding) => {
+      const at = cutoff();
+      const visibleFindings = state.findings.filter((finding) => at == null || finding.at <= at);
+      const markup = visibleFindings.map((finding) => {
         const key = `${finding.code}:${finding.traceId}`;
         const open = key === state.openFinding;
         return `<li><button type="button" class="finding" data-finding="${escapeText(key)}" data-trace="${escapeText(finding.traceId)}" aria-expanded="${open}">` +
@@ -467,7 +731,7 @@
           `<span class="meta">${escapeText(finding.detail)}</span></button></li>`;
       }).join("") || `<li class="empty">No findings in the current log.</li>`;
       if (list.innerHTML !== markup) list.innerHTML = markup;
-      const open = state.findings.find((finding) => `${finding.code}:${finding.traceId}` === state.openFinding);
+      const open = visibleFindings.find((finding) => `${finding.code}:${finding.traceId}` === state.openFinding);
       if (!open) {
         explain.hidden = true;
         return;
@@ -502,6 +766,37 @@
         if (!live.has(key)) state.nodes.delete(key);
       }
       state.edges = graph.edges.filter((edge) => edge.from !== edge.to);
+      rebuildSeen();
+    }
+
+    function rebuildSeen() {
+      const seen = new Map();
+      const note = (key, time) => {
+        const current = seen.get(key);
+        if (current == null || time < current) seen.set(key, time);
+      };
+      for (const trace of state.traces) {
+        for (const span of trace.spans) note(span.nodeKey, span.start);
+      }
+      for (const edge of state.edges) {
+        if (edge.source === "declared" || !edge.firstSeen) continue;
+        note(edge.from, edge.firstSeen);
+        note(edge.to, edge.firstSeen);
+      }
+      state.seenAt = seen;
+    }
+
+    function timedEdges() {
+      const at = cutoff();
+      if (at == null) return state.edges;
+      return state.edges.filter((edge) => {
+        if (edge.source === "declared") {
+          const origin = state.seenAt.get(edge.from);
+          const target = state.seenAt.get(edge.to);
+          return origin != null && target != null && origin <= at && target <= at;
+        }
+        return (edge.firstSeen || 0) > 0 && edge.firstSeen <= at;
+      });
     }
 
     function hash(value) {
@@ -516,6 +811,11 @@
     }
 
     function nodeVisible(node) {
+      const at = cutoff();
+      if (at != null) {
+        const seen = state.seenAt.get(node.nodeKey);
+        if (seen == null || seen > at) return false;
+      }
       if (!state.layers.has(node.layer)) return false;
       if (state.hideAssets && isAsset(node.name)) return false;
       if (state.query && !`${node.name} ${node.kind}`.toLowerCase().includes(state.query)) return false;
@@ -523,7 +823,7 @@
         const keys = traceKeys();
         if (keys.size === 0) return true;
         if (keys.has(node.nodeKey)) return true;
-        return state.edges.some((edge) =>
+        return timedEdges().some((edge) =>
           (keys.has(edge.from) && edge.to === node.nodeKey) || (keys.has(edge.to) && edge.from === node.nodeKey)
         );
       }
@@ -536,7 +836,7 @@
 
     function visibleEdges() {
       const keys = new Set(visibleNodes().map((node) => node.nodeKey));
-      return state.edges.filter((edge) => keys.has(edge.from) && keys.has(edge.to));
+      return timedEdges().filter((edge) => keys.has(edge.from) && keys.has(edge.to));
     }
 
     function stepPhysics() {
@@ -548,7 +848,14 @@
           const b = nodes[other];
           let dx = a.x - b.x;
           let dy = a.y - b.y;
-          let distance = Math.hypot(dx, dy) || 0.01;
+          let distance = Math.hypot(dx, dy);
+          if (distance < 1) {
+            dx = 1;
+            dy = 0;
+            distance = 36;
+          } else if (distance < 36) {
+            distance = 36;
+          }
           const force = 1400 / (distance * distance);
           dx = (dx / distance) * force;
           dy = (dy / distance) * force;
@@ -577,6 +884,11 @@
         node.vy += -node.y * 0.01;
         node.vx *= 0.78;
         node.vy *= 0.78;
+        const speed = Math.hypot(node.vx, node.vy);
+        if (speed > 10) {
+          node.vx = (node.vx / speed) * 10;
+          node.vy = (node.vy / speed) * 10;
+        }
         node.x += node.vx;
         node.y += node.vy;
       }
@@ -588,6 +900,8 @@
       canvas.width = Math.max(1, Math.floor(rect.width * ratio));
       canvas.height = Math.max(1, Math.floor(rect.height * ratio));
       context.setTransform(ratio, 0, 0, ratio, 0, 0);
+      layoutClips();
+      placePlayhead();
     }
 
     function toScreen(x, y) {
@@ -614,7 +928,7 @@
       const neighbours = new Set();
       if (state.hover) {
         neighbours.add(state.hover);
-        for (const edge of state.edges) {
+        for (const edge of visibleEdges()) {
           if (edge.from === state.hover) neighbours.add(edge.to);
           if (edge.to === state.hover) neighbours.add(edge.from);
         }
@@ -650,7 +964,7 @@
           context.lineWidth = 1.5;
           context.stroke();
         }
-        const labelled = !dim && (state.camera.k > 1.05 || neighbours.has(node.nodeKey) || node.nodeKey === state.focus || nodes.length < 18);
+        const labelled = !dim && (state.showNames || neighbours.has(node.nodeKey));
         if (labelled) {
           context.fillStyle = "#e8e4da";
           context.font = "11px ui-sans-serif, system-ui, sans-serif";
@@ -679,7 +993,7 @@
         tip.style.display = "none";
         return;
       }
-      const links = state.edges.filter((edge) => edge.from === node.nodeKey || edge.to === node.nodeKey);
+      const links = visibleEdges().filter((edge) => edge.from === node.nodeKey || edge.to === node.nodeKey);
       tip.style.display = "block";
       tip.style.left = `${x + 12}px`;
       tip.style.top = `${y + 12}px`;
@@ -697,7 +1011,52 @@
       const rect = canvas.getBoundingClientRect();
       const width = Math.max(...xs) - Math.min(...xs) + 160;
       const height = Math.max(...ys) - Math.min(...ys) + 160;
-      state.camera.k = Math.max(0.35, Math.min(1.8, Math.min(rect.width / width, rect.height / height)));
+      state.camera.k = Math.max(0.12, Math.min(1.8, Math.min(rect.width / width, rect.height / height)));
+    }
+
+    function frameTarget() {
+      const nodes = visibleNodes();
+      if (nodes.length === 0) return null;
+      const xs = nodes.map((node) => node.x);
+      const ys = nodes.map((node) => node.y);
+      const rect = canvas.getBoundingClientRect();
+      const width = Math.max(...xs) - Math.min(...xs) + 180;
+      const height = Math.max(...ys) - Math.min(...ys) + 180;
+      return {
+        x: (Math.min(...xs) + Math.max(...xs)) / 2,
+        y: (Math.min(...ys) + Math.max(...ys)) / 2,
+        k: Math.max(0.12, Math.min(1.8, Math.min(rect.width / width, rect.height / height))),
+      };
+    }
+
+    function easeCamera() {
+      const target = frameTarget();
+      if (!target || state.drag) return;
+      state.camera.x += (target.x - state.camera.x) * 0.12;
+      state.camera.y += (target.y - state.camera.y) * 0.12;
+      state.camera.k += (target.k - state.camera.k) * 0.12;
+    }
+
+    function settleNewNodes() {
+      const nodes = visibleNodes();
+      const fresh = nodes.filter((node) => !state.laidOut.has(node.nodeKey));
+      const known = nodes.filter((node) => state.laidOut.has(node.nodeKey));
+      if (fresh.length > 0 && known.length > 0) {
+        const originX = known.reduce((sum, node) => sum + node.x, 0) / known.length;
+        const originY = known.reduce((sum, node) => sum + node.y, 0) / known.length;
+        for (const node of fresh) {
+          const angle = hash(node.nodeKey);
+          node.x = originX + Math.cos(angle) * 48;
+          node.y = originY + Math.sin(angle) * 48;
+          node.vx = 0;
+          node.vy = 0;
+        }
+      }
+      const live = new Set(nodes.map((node) => node.nodeKey));
+      for (const node of nodes) state.laidOut.add(node.nodeKey);
+      for (const key of state.laidOut) {
+        if (!live.has(key)) state.laidOut.delete(key);
+      }
     }
 
     async function refresh() {
@@ -710,7 +1069,7 @@
       state.findings = findings.findings;
       const listed = listedTraces();
       const selectedBefore = state.selected;
-      if (state.live && listed.length > 0) {
+      if (!state.playing && state.cursor == null && state.live && listed.length > 0) {
         const ranked = [...listed].sort((left, right) => latestActivity(left) - latestActivity(right));
         state.selected = ranked.at(-1)?.traceId || "";
       } else if (!listed.some((trace) => trace.traceId === state.selected)) {
@@ -720,9 +1079,9 @@
       const visibleBefore = new Set(visibleNodes().map((node) => node.nodeKey));
       syncGraph(graph);
       const grew = visibleNodes().some((node) => !visibleBefore.has(node.nodeKey));
-      if ((grew || state.selected !== selectedBefore) && !state.drag) requestAnimationFrame(fit);
-      const nodes = state.nodes.size;
-      const edges = state.edges.length;
+      if ((grew || state.selected !== selectedBefore) && !state.drag && !state.playing) requestAnimationFrame(fit);
+      const nodes = visibleNodes().length;
+      const edges = visibleEdges().length;
       if (!state.reading) {
         document.getElementById("status").textContent = statusText(nodes, edges);
       }
@@ -735,11 +1094,133 @@
       const declared = state.edges.filter((edge) => edge.source === "declared").length;
       const base = nodes === 0
         ? "The graph is built from the app as you use it. Nothing has been recorded yet."
-        : `${state.traces.length} traces · ${nodes} nodes · ${edges} links, updated as you use the app.`;
+        : `${listedTraces().length} traces · ${nodes} nodes · ${edges} links on the graph.`;
       const read = declared ? ` ${declared} read from source.` : "";
       const note = state.sourceNote ? ` ${state.sourceNote}` : "";
-      return `${base}${read}${note}`;
+      const picture = `${base}${read}${note}`;
+      if (state.playing) return `Playing. The picture matches the playhead. ${picture}`;
+      if (state.cursor != null) return `Set to the playhead. ${picture}`;
+      return picture;
     }
+
+    function syncTransport() {
+      const button = document.getElementById("transport");
+      button.textContent = state.playing ? "Pause" : "Play";
+      button.setAttribute("aria-pressed", state.playing ? "true" : "false");
+    }
+
+    function stopPlayback(clearCursor) {
+      state.playing = false;
+      cancelAnimationFrame(state.playAnim);
+      if (clearCursor) state.cursor = null;
+      syncTransport();
+    }
+
+    function paintPlayback() {
+      renderTraces();
+      renderTimeline();
+      renderFindings();
+      if (!state.reading) {
+        document.getElementById("status").textContent = statusText(visibleNodes().length, visibleEdges().length);
+      }
+    }
+
+    function playbackFrame(now) {
+      if (!state.playing) return;
+      const arranged = buildArrangement();
+      if (arranged.stories.length === 0) {
+        stopPlayback(true);
+        paintPlayback();
+        return;
+      }
+      const distance = Math.max(0, state.playTo - state.playFrom);
+      const travel = Math.max(1600, Math.min(9000, (distance / Math.max(arranged.end, 1)) * 7000));
+      const t = Math.min(1, (now - state.playWall) / travel);
+      state.cursor = state.playFrom + distance * t;
+      placePlayhead();
+      layoutClips();
+      if (t >= 1) {
+        stopPlayback(true);
+        paintPlayback();
+        if (!state.drag) requestAnimationFrame(fit);
+        return;
+      }
+      if (now - (state.playDrawn || 0) > 70) {
+        state.playDrawn = now;
+        renderTraces();
+        renderFindings();
+        const after = visibleNodes();
+        if (!state.reading) {
+          document.getElementById("status").textContent = statusText(after.length, visibleEdges().length);
+        }
+      }
+      state.playAnim = requestAnimationFrame(playbackFrame);
+    }
+
+    function timeAt(event) {
+      const ruler = document.getElementById("ruler");
+      const arranged = buildArrangement();
+      if (arranged.stories.length === 0) return null;
+      const rect = ruler.getBoundingClientRect();
+      if (rect.width === 0) return null;
+      const fraction = Math.min(1, Math.max(0, (event.clientX - rect.left) / rect.width));
+      return fraction * arranged.end;
+    }
+
+    let scrubbing = false;
+
+    function scrub(event) {
+      const time = timeAt(event);
+      if (time == null) return;
+      if (state.playing) stopPlayback(false);
+      state.live = false;
+      document.getElementById("live").setAttribute("aria-pressed", "false");
+      state.cursor = time;
+      paintPlayback();
+    }
+
+    function beginScrub(event) {
+      scrubbing = true;
+      event.currentTarget.setPointerCapture(event.pointerId);
+      scrub(event);
+    }
+
+    document.getElementById("ruler").addEventListener("pointerdown", beginScrub);
+    document.querySelector(".playhead-cap").addEventListener("pointerdown", (event) => {
+      event.stopPropagation();
+      beginScrub(event);
+    });
+    window.addEventListener("pointermove", (event) => {
+      if (scrubbing) scrub(event);
+    });
+    window.addEventListener("pointerup", () => {
+      scrubbing = false;
+    });
+
+    document.getElementById("transport").addEventListener("click", () => {
+      if (state.playing) {
+        stopPlayback(false);
+        paintPlayback();
+        return;
+      }
+      const arranged = buildArrangement();
+      if (arranged.stories.length === 0) return;
+      state.live = false;
+      document.getElementById("live").setAttribute("aria-pressed", "false");
+      state.scope = "all";
+      const scope = document.getElementById("scope");
+      scope.setAttribute("aria-pressed", "false");
+      scope.textContent = "All activity";
+      if (state.cursor == null || state.cursor >= arranged.end - 0.5) state.cursor = 0;
+      state.playFrom = state.cursor;
+      state.playTo = arranged.end;
+      state.playWall = performance.now();
+      state.playing = true;
+      syncTransport();
+      paintPlayback();
+      if (!state.drag) requestAnimationFrame(fit);
+      state.playAnim = requestAnimationFrame(playbackFrame);
+    });
 
     document.getElementById("read-source").addEventListener("click", async () => {
       const button = document.getElementById("read-source");
@@ -762,6 +1243,7 @@
       const button = event.target.closest("button[data-trace]");
       if (!button) return;
       state.selected = button.dataset.trace;
+      stopPlayback(true);
       state.live = false;
       document.getElementById("live").setAttribute("aria-pressed", "false");
       state.scope = "trace";
@@ -769,10 +1251,11 @@
       document.getElementById("scope").textContent = "This trace";
       renderTraces();
       renderTimeline();
+      renderFindings();
       fit();
     });
 
-    document.getElementById("lanes").addEventListener("click", (event) => {
+    document.getElementById("tracks").addEventListener("click", (event) => {
       const bar = event.target.closest("button[data-node]");
       if (!bar) return;
       state.focus = bar.dataset.node;
@@ -788,6 +1271,7 @@
       if (!button) return;
       state.openFinding = state.openFinding === button.dataset.finding ? "" : button.dataset.finding;
       state.selected = button.dataset.trace;
+      stopPlayback(true);
       state.live = false;
       document.getElementById("live").setAttribute("aria-pressed", "false");
       state.scope = "trace";
@@ -857,6 +1341,7 @@
       state.openFinding = "";
       state.live = true;
       state.sourceNote = "";
+      stopPlayback(true);
       document.getElementById("live").setAttribute("aria-pressed", "true");
       renderTraces();
       renderTimeline();
@@ -867,8 +1352,9 @@
 
     const HELP = {
       traces: "Each row is one story: a click or a job, and everything that shared its trace. Select a row to hold that story still. That turns Live off.",
-      timeline: "Bars are what ran, from left to right. Each row is one lane: a part of the stack that took part in this story. When more than one named process shared the story, the rows use those process names instead. A lane only appears if something in it actually ran.",
-      graph: "Each dot is something that ran. A line means one event recorded that it happened inside another, or because of another. A dashed line was read from the source when you pressed Read source, and it appears only when both ends have already run. Sharing a trace does not draw a line, so jobs and worker can be in the same story with nothing joining them. Drag the background to move around, scroll to zoom, and drag a dot to pin it. Hover a dot to see what it connects to.",
+      timeline: "The ruler is the whole recording, with the long pauses between clicks taken out so the clips sit together. The orange line is the playhead. Press Play to start again from the beginning and watch the graph grow, and press it again to pause. Drag the ruler or the playhead triangle to an exact moment. Clips that have not happened yet stay hidden. This trace, Hide assets and the layer buttons can narrow the picture. Live parks the playhead at the end.",
+      graph: "Each dot is something that ran. Once the playhead has reached it, the dot stays while playback moves forward. A line means one event recorded that it happened inside another, or because of another. A dashed line was read from the source when you pressed Read source, and it appears only when both ends have already run. Sharing a trace does not draw a line, so jobs and worker can be in the same story with nothing joining them. Drag the background to move around, scroll to zoom, and drag a dot to pin it. Hover a dot to see what it connects to. Names starts off.",
+      names: "Shows the name beside every dot. It starts off. With it off, hovering a dot still names that dot and every dot joined to it.",
       search: "Type part of a name to hide dots that do not match. Clear the box to show them again.",
       live: "Follows whatever just happened and recentres the picture. Choosing a trace in the list turns this off. Press it again to follow the newest story.",
       scope: "This trace shows only the story selected on the left, plus anything already joined to it by a line. All activity shows every story from this session. Press Fit if the extra dots sit outside the view. Hide assets is on by default, so many of those extra dots stay hidden.",
@@ -906,7 +1392,9 @@
     }
 
     document.getElementById("live").addEventListener("click", (event) => {
-      state.live = !state.live;
+      const follow = !state.live;
+      if (follow) stopPlayback(true);
+      state.live = follow;
       event.target.setAttribute("aria-pressed", state.live ? "true" : "false");
       if (state.live) refresh();
     });
@@ -921,6 +1409,11 @@
     document.getElementById("assets").addEventListener("click", (event) => {
       state.hideAssets = !state.hideAssets;
       event.target.setAttribute("aria-pressed", state.hideAssets ? "true" : "false");
+    });
+
+    document.getElementById("names").addEventListener("click", (event) => {
+      state.showNames = !state.showNames;
+      event.target.setAttribute("aria-pressed", state.showNames ? "true" : "false");
     });
 
     for (const button of document.querySelectorAll("[data-layer]")) {
@@ -990,6 +1483,8 @@
     resize();
     function frame() {
       stepPhysics();
+      settleNewNodes();
+      if (state.playing) easeCamera();
       draw();
       requestAnimationFrame(frame);
     }

@@ -32,7 +32,13 @@ def test_page_draws_the_graph_and_traces_carry_layers(tmp_path: Path) -> None:
     page = client.get("/")
     assert page.is_success
     assert 'id="graph"' in page.text
-    assert 'id="reset"' in page.text
+    assert 'id="transport"' in page.text
+    assert 'id="ruler"' in page.text
+    assert 'id="timecode"' in page.text
+    assert 'id="names"' in page.text
+    assert 'aria-pressed="false">Names' in page.text
+    assert "hovering a dot still names" in page.text
+    assert "Drag the ruler or the playhead triangle" in page.text
     assert 'data-help="live"' in page.text
     assert "hides the status" in page.text
     span = client.get("/v1/traces").json()["traces"][0]["spans"][0]
