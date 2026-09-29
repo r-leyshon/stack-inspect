@@ -94,7 +94,9 @@ def test_repeated_query_finding() -> None:
         )
         for index in range(1, 4)
     ]
-    assert any(finding.code == "repeated-query" for finding in analyse(events))
+    findings = analyse(events)
+    match = next(finding for finding in findings if finding.code == "repeated-query")
+    assert match.at == events[-1]["ts"]
 
 
 def test_cors_masked_server_error() -> None:

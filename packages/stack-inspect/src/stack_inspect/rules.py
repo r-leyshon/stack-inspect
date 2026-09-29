@@ -27,6 +27,7 @@ class Finding:
     title: str
     trace_id: str
     detail: str
+    at: float
 
 
 def analyse(events: list[GraphEvent]) -> list[Finding]:
@@ -72,29 +73,31 @@ def _repeated_queries(trace_id: str, spans: list[Span]) -> list[Finding]:
                     title="Same query executed repeatedly within one interaction",
                     trace_id=trace_id,
                     detail=f"Query fingerprint {fingerprint} ran {count} times",
+                    at=_at(
+                        [span for span in spans if span.kind == "query" and _fingerprint(span) == fingerprint],
+                        REPEATED_QUERY_MIN,
+                    ),
                 ),
             )
     return findings
 
 
 def _duplicate_requests(trace_id: str, spans: list[Span]) -> list[Finding]:
-    counts: dict[str, int] = {}
+    grouped: dict[str, list[Span]] = {}
     for span in spans:
         if span.kind != "request":
             continue
-        method = str(span.attributes.get("method", "GET"))
-        path = str(span.attributes.get("path", span.name))
-        key = f"{method} {path}"
-        counts[key] = counts.get(key, 0) + 1
+        grouped.setdefault(_request_key(span), []).append(span)
     return [
         Finding(
             code="duplicate-request",
             title="Duplicate request",
             trace_id=trace_id,
-            detail=f"{key} ran {count} times",
+            detail=f"{key} ran {len(group)} times",
+            at=_at(group, DUPLICATE_MIN),
         )
-        for key, count in counts.items()
-        if count >= DUPLICATE_MIN
+        for key, group in grouped.items()
+        if len(group) >= DUPLICATE_MIN
     ]
 
 
@@ -115,6 +118,7 @@ def _cors_masked_errors(trace_id: str, spans: list[Span]) -> list[Finding]:
                 title="Server error reported as a CORS failure",
                 trace_id=trace_id,
                 detail=f"{path} returned status {status} without CORS headers",
+                at=span.start,
             ),
         )
     return findings
@@ -140,6 +144,7 @@ def _rejected_preflights(trace_id: str, spans: list[Span]) -> list[Finding]:
                 title="Rejected preflight",
                 trace_id=trace_id,
                 detail=f"Preflight for {path} rejected; disallowed header {named}",
+                at=span.start,
             ),
         )
     return findings
@@ -152,6 +157,7 @@ def _unchanged_rerenders(trace_id: str, spans: list[Span]) -> list[Finding]:
             title="Component re-rendered with no changed props or state",
             trace_id=trace_id,
             detail=f"{span.name} re-rendered with nothing relevant changed",
+            at=span.start,
         )
         for span in spans
         if span.kind == "render" and span.attributes.get("unchanged") is True
@@ -169,6 +175,7 @@ def _large_subtrees(trace_id: str, spans: list[Span]) -> list[Finding]:
             title="State update caused a large render subtree",
             trace_id=trace_id,
             detail=f"{updates[-1].name} was followed by {len(renders)} renders",
+            at=_at(renders, LARGE_SUBTREE_MIN),
         ),
     ]
 
@@ -185,6 +192,7 @@ def _restarted_effects(trace_id: str, spans: list[Span]) -> list[Finding]:
             title="Effect repeatedly cancelled and restarted",
             trace_id=trace_id,
             detail=f"{node_key} ran {count} times",
+            at=_at([span for span in spans if span.kind == "effect" and span.node_key == node_key], EFFECT_RESTART_MIN),
         )
         for node_key, count in counts.items()
         if count >= EFFECT_RESTART_MIN
@@ -201,6 +209,7 @@ def _stream_reconnects(trace_id: str, spans: list[Span]) -> list[Finding]:
             title="Stream reconnecting repeatedly",
             trace_id=trace_id,
             detail=f"The stream reconnected {len(reconnects)} times",
+            at=_at(reconnects, RECONNECT_MIN),
         ),
     ]
 
@@ -228,6 +237,7 @@ def _sequential_queries(trace_id: str, spans: list[Span]) -> list[Finding]:
             title="Sequential awaits with no observed dependency",
             trace_id=trace_id,
             detail=f"{len(queries)} queries ran one after another",
+            at=queries[-1].start,
         ),
     ]
 
@@ -246,8 +256,25 @@ def _work_after_visible(trace_id: str, spans: list[Span]) -> list[Finding]:
             title="Work performed after the user-visible result was already available",
             trace_id=trace_id,
             detail=f"{len(late)} operation(s) started after the result was visible",
+            at=min(span.start for span in late),
         ),
     ]
+
+
+def _request_key(span: Span) -> str:
+    method = str(span.attributes.get("method", "GET"))
+    path = str(span.attributes.get("path", span.name))
+    return f"{method} {path}"
+
+
+def _fingerprint(span: Span) -> str:
+    return str(span.attributes.get("fingerprint", span.node_key))
+
+
+def _at(spans: list[Span], count: int) -> float:
+    """Return when the ``count``-th span started. That is when the finding became true."""
+    ordered = sorted(spans, key=lambda span: span.start)
+    return ordered[min(count, len(ordered)) - 1].start
 
 
 def _status(span: Span) -> int | None:
