@@ -33,6 +33,8 @@ def test_page_draws_the_graph_and_traces_carry_layers(tmp_path: Path) -> None:
     assert page.is_success
     assert 'id="graph"' in page.text
     assert 'id="transport"' in page.text
+    assert 'id="restart"' in page.text
+    assert 'aria-label="Restart"' in page.text
     assert 'class="transport-deck"' in page.text
     assert 'aria-label="Play"' in page.text
     assert 'class="transport-svg"' in page.text
@@ -44,6 +46,7 @@ def test_page_draws_the_graph_and_traces_carry_layers(tmp_path: Path) -> None:
     assert 'aria-pressed="false">Names' in page.text
     assert "hovering a dot still names" in page.text
     assert "Drag the ruler or the playhead triangle" in page.text
+    assert "jump to the start" in page.text
     assert "paint its nodes red" in page.text
     assert "whole graph at that same moment" in page.text
     assert "including while a finding is open" in page.text
