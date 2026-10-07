@@ -170,7 +170,97 @@
     }
     .timeline-actions { display: flex; align-items: center; gap: 0.55rem; }
     .timeline-actions .info.panel-help { margin-top: 0; }
-    #timecode { font-variant-numeric: tabular-nums; font-size: 0.75rem; color: var(--text); min-width: 12.5rem; }
+    .transport-deck {
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+      padding: 0.2rem 0.65rem 0.2rem 0.2rem;
+      border-radius: 999px;
+      background: linear-gradient(180deg, #141920, #0c1016);
+      border: 1px solid #2a323c;
+      box-shadow: inset 0 1px 0 #ffffff0a;
+    }
+    #transport {
+      --transport-ease: cubic-bezier(0.22, 1, 0.36, 1);
+      width: 2.15rem;
+      height: 2.15rem;
+      border: 0;
+      border-radius: 50%;
+      padding: 0;
+      display: grid;
+      place-items: center;
+      cursor: pointer;
+      background: #ff8a3d;
+      color: #14181e;
+      box-shadow:
+        inset 0 -1px 0 #00000028,
+        inset 0 1px 0 #ffffff33;
+      transition:
+        transform 0.16s var(--transport-ease),
+        background 0.36s var(--transport-ease),
+        color 0.36s var(--transport-ease),
+        box-shadow 0.36s var(--transport-ease);
+    }
+    #transport:hover { transform: scale(1.05); }
+    #transport:active { transform: scale(0.95); }
+    #transport[aria-pressed="true"] {
+      background: #ece7dc;
+      box-shadow:
+        inset 0 -1px 0 #00000018,
+        inset 0 1px 0 #ffffff66;
+    }
+    .transport-svg {
+      width: 1rem;
+      height: 1rem;
+      display: block;
+      overflow: visible;
+    }
+    .transport-svg .glyph {
+      fill: currentColor;
+      transform-origin: 12px 12px;
+      transition:
+        transform 0.42s var(--transport-ease),
+        opacity 0.28s ease;
+    }
+    /* Idle: crisp play triangle, pause bars tucked away. */
+    #transport[aria-pressed="false"] .glyph-play {
+      opacity: 1;
+      transform: translateX(0.5px) scale(1) rotate(0deg);
+    }
+    #transport[aria-pressed="false"] .glyph-pause {
+      opacity: 0;
+      transform: scale(0.45) rotate(-80deg);
+      pointer-events: none;
+    }
+    /* Playing: pause bars settle in, triangle leaves. */
+    #transport[aria-pressed="true"] .glyph-play {
+      opacity: 0;
+      transform: scale(0.45) rotate(80deg);
+      pointer-events: none;
+    }
+    #transport[aria-pressed="true"] .glyph-pause {
+      opacity: 1;
+      transform: scale(1) rotate(0deg);
+    }
+    #transport[aria-pressed="true"] .glyph-pause .blade {
+      transform-box: fill-box;
+      transform-origin: center;
+      animation: transport-blade-in 0.42s var(--transport-ease) both;
+    }
+    #transport[aria-pressed="true"] .glyph-pause .blade-b {
+      animation-delay: 0.04s;
+    }
+    @keyframes transport-blade-in {
+      from { transform: scaleY(0.35); opacity: 0.4; }
+      to { transform: scaleY(1); opacity: 1; }
+    }
+    #timecode {
+      font-variant-numeric: tabular-nums;
+      font-size: 0.72rem;
+      color: #a7adb6;
+      letter-spacing: 0.04em;
+      min-width: 11.5rem;
+    }
     .bar.upcoming { opacity: 0; min-width: 0; padding: 0; pointer-events: none; }
     .bar.quiet { opacity: 0.34; }
     .bar.here { box-shadow: inset 0 0 0 1px #ffffffcc; }
@@ -337,8 +427,18 @@
       <div class="section-title">
         <h2>Timeline</h2>
         <div class="timeline-actions">
-          <button class="tool" type="button" id="transport" aria-pressed="false">Play</button>
-          <span id="timecode">Playhead at the end</span>
+          <div class="transport-deck">
+            <button type="button" id="transport" aria-pressed="false" aria-label="Play" title="Play">
+              <svg class="transport-svg" viewBox="0 0 24 24" aria-hidden="true">
+                <path class="glyph glyph-play" d="M9.4 6.85a1.1 1.1 0 0 1 1.68-.93l7.35 4.55a1.1 1.1 0 0 1 0 1.86l-7.35 4.55a1.1 1.1 0 0 1-1.68-.93V6.85z" />
+                <g class="glyph glyph-pause">
+                  <rect class="blade blade-a" x="7" y="5.5" width="3.6" height="13" rx="1.3" />
+                  <rect class="blade blade-b" x="13.4" y="5.5" width="3.6" height="13" rx="1.3" />
+                </g>
+              </svg>
+            </button>
+            <span id="timecode">Playhead at the end</span>
+          </div>
           <button type="button" class="info panel-help" data-help="timeline" aria-label="About the timeline">i</button>
         </div>
       </div>
@@ -1147,8 +1247,10 @@
 
     function syncTransport() {
       const button = document.getElementById("transport");
-      button.textContent = state.playing ? "Pause" : "Play";
-      button.setAttribute("aria-pressed", state.playing ? "true" : "false");
+      const playing = state.playing;
+      button.setAttribute("aria-pressed", playing ? "true" : "false");
+      button.setAttribute("aria-label", playing ? "Pause" : "Play");
+      button.title = playing ? "Pause" : "Play";
     }
 
     function stopPlayback(clearCursor) {
@@ -1404,7 +1506,7 @@
 
     const HELP = {
       traces: "Each row is one story: a click or a job, and everything that shared its trace. Select a row to hold that story still. That turns Live off.",
-      timeline: "The ruler is the whole recording, with the long pauses between clicks taken out so the clips sit together. The orange line is the playhead. Press Play to start again from the beginning and watch the graph grow, and press it again to pause. Drag the ruler or the playhead triangle to an exact moment. Clips that have not happened yet stay hidden. This trace, Hide assets and the layer buttons can narrow the picture. Live parks the playhead at the end.",
+      timeline: "The ruler is the whole recording, with the long pauses between clicks taken out so the clips sit together. The orange line is the playhead. Press the round play control to start again from the beginning and watch the graph grow, and press it again to pause. Drag the ruler or the playhead triangle to an exact moment. Clips that have not happened yet stay hidden. This trace, Hide assets and the layer buttons can narrow the picture. Live parks the playhead at the end.",
       graph: "Each dot is something that ran. Once the playhead has reached it, the dot stays while playback moves forward. A line means one event recorded that it happened inside another, or because of another. A rose line is duplicated work: the same request or query ran again, and its thickness follows the count. A dashed line was read from the source when you pressed Read source, and it appears only when both ends have already run. Sharing a trace does not draw a line, so jobs and worker can be in the same story with nothing joining them. Drag the background to move around, scroll to zoom, and drag a dot to pin it. Hover a dot to see what it connects to. Names starts off.",
       names: "Shows the name beside every dot, including while a finding is open. It starts off. With it off, hovering a dot still names that dot and every dot joined to it.",
       search: "Type part of a name to hide dots that do not match. Clear the box to show them again.",

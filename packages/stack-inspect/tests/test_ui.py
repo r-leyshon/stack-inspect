@@ -33,6 +33,11 @@ def test_page_draws_the_graph_and_traces_carry_layers(tmp_path: Path) -> None:
     assert page.is_success
     assert 'id="graph"' in page.text
     assert 'id="transport"' in page.text
+    assert 'class="transport-deck"' in page.text
+    assert 'aria-label="Play"' in page.text
+    assert 'class="transport-svg"' in page.text
+    assert "glyph-play" in page.text
+    assert "glyph-pause" in page.text
     assert 'id="ruler"' in page.text
     assert 'id="timecode"' in page.text
     assert 'id="names"' in page.text
