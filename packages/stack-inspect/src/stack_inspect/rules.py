@@ -28,6 +28,7 @@ class Finding:
     trace_id: str
     detail: str
     at: float
+    node_keys: tuple[str, ...] = ()
 
 
 def analyse(events: list[GraphEvent]) -> list[Finding]:
@@ -58,27 +59,25 @@ def _trace_findings(trace_id: str, spans: list[Span]) -> list[Finding]:
 
 
 def _repeated_queries(trace_id: str, spans: list[Span]) -> list[Finding]:
-    counts: dict[str, int] = {}
+    grouped: dict[str, list[Span]] = {}
     for span in spans:
         if span.kind != "query":
             continue
-        fingerprint = str(span.attributes.get("fingerprint", span.node_key))
-        counts[fingerprint] = counts.get(fingerprint, 0) + 1
+        grouped.setdefault(_fingerprint(span), []).append(span)
     findings: list[Finding] = []
-    for fingerprint, count in counts.items():
-        if count >= REPEATED_QUERY_MIN:
-            findings.append(
-                Finding(
-                    code="repeated-query",
-                    title="Same query executed repeatedly within one interaction",
-                    trace_id=trace_id,
-                    detail=f"Query fingerprint {fingerprint} ran {count} times",
-                    at=_at(
-                        [span for span in spans if span.kind == "query" and _fingerprint(span) == fingerprint],
-                        REPEATED_QUERY_MIN,
-                    ),
-                ),
-            )
+    for fingerprint, group in grouped.items():
+        if len(group) < REPEATED_QUERY_MIN:
+            continue
+        findings.append(
+            Finding(
+                code="repeated-query",
+                title="Same query executed repeatedly within one interaction",
+                trace_id=trace_id,
+                detail=f"Query fingerprint {fingerprint} ran {len(group)} times",
+                at=_at(group, REPEATED_QUERY_MIN),
+                node_keys=_keys(group),
+            ),
+        )
     return findings
 
 
@@ -95,6 +94,7 @@ def _duplicate_requests(trace_id: str, spans: list[Span]) -> list[Finding]:
             trace_id=trace_id,
             detail=f"{key} ran {len(group)} times",
             at=_at(group, DUPLICATE_MIN),
+            node_keys=_keys(group),
         )
         for key, group in grouped.items()
         if len(group) >= DUPLICATE_MIN
@@ -119,6 +119,7 @@ def _cors_masked_errors(trace_id: str, spans: list[Span]) -> list[Finding]:
                 trace_id=trace_id,
                 detail=f"{path} returned status {status} without CORS headers",
                 at=span.start,
+                node_keys=(span.node_key,),
             ),
         )
     return findings
@@ -145,6 +146,7 @@ def _rejected_preflights(trace_id: str, spans: list[Span]) -> list[Finding]:
                 trace_id=trace_id,
                 detail=f"Preflight for {path} rejected; disallowed header {named}",
                 at=span.start,
+                node_keys=(span.node_key,),
             ),
         )
     return findings
@@ -158,6 +160,7 @@ def _unchanged_rerenders(trace_id: str, spans: list[Span]) -> list[Finding]:
             trace_id=trace_id,
             detail=f"{span.name} re-rendered with nothing relevant changed",
             at=span.start,
+            node_keys=(span.node_key,),
         )
         for span in spans
         if span.kind == "render" and span.attributes.get("unchanged") is True
@@ -176,26 +179,28 @@ def _large_subtrees(trace_id: str, spans: list[Span]) -> list[Finding]:
             trace_id=trace_id,
             detail=f"{updates[-1].name} was followed by {len(renders)} renders",
             at=_at(renders, LARGE_SUBTREE_MIN),
+            node_keys=_keys([*updates[-1:], *renders]),
         ),
     ]
 
 
 def _restarted_effects(trace_id: str, spans: list[Span]) -> list[Finding]:
-    counts: dict[str, int] = {}
+    grouped: dict[str, list[Span]] = {}
     for span in spans:
         if span.kind != "effect":
             continue
-        counts[span.node_key] = counts.get(span.node_key, 0) + 1
+        grouped.setdefault(span.node_key, []).append(span)
     return [
         Finding(
             code="effect-restarted",
             title="Effect repeatedly cancelled and restarted",
             trace_id=trace_id,
-            detail=f"{node_key} ran {count} times",
-            at=_at([span for span in spans if span.kind == "effect" and span.node_key == node_key], EFFECT_RESTART_MIN),
+            detail=f"{node_key} ran {len(group)} times",
+            at=_at(group, EFFECT_RESTART_MIN),
+            node_keys=(node_key,),
         )
-        for node_key, count in counts.items()
-        if count >= EFFECT_RESTART_MIN
+        for node_key, group in grouped.items()
+        if len(group) >= EFFECT_RESTART_MIN
     ]
 
 
@@ -210,6 +215,7 @@ def _stream_reconnects(trace_id: str, spans: list[Span]) -> list[Finding]:
             trace_id=trace_id,
             detail=f"The stream reconnected {len(reconnects)} times",
             at=_at(reconnects, RECONNECT_MIN),
+            node_keys=_keys(reconnects),
         ),
     ]
 
@@ -238,6 +244,7 @@ def _sequential_queries(trace_id: str, spans: list[Span]) -> list[Finding]:
             trace_id=trace_id,
             detail=f"{len(queries)} queries ran one after another",
             at=queries[-1].start,
+            node_keys=_keys(queries),
         ),
     ]
 
@@ -257,6 +264,7 @@ def _work_after_visible(trace_id: str, spans: list[Span]) -> list[Finding]:
             trace_id=trace_id,
             detail=f"{len(late)} operation(s) started after the result was visible",
             at=min(span.start for span in late),
+            node_keys=_keys(late),
         ),
     ]
 
@@ -269,6 +277,15 @@ def _request_key(span: Span) -> str:
 
 def _fingerprint(span: Span) -> str:
     return str(span.attributes.get("fingerprint", span.node_key))
+
+
+def _keys(spans: list[Span]) -> tuple[str, ...]:
+    """Stable unique node keys for the spans a finding points at."""
+    ordered: list[str] = []
+    for span in sorted(spans, key=lambda item: item.start):
+        if span.node_key not in ordered:
+            ordered.append(span.node_key)
+    return tuple(ordered)
 
 
 def _at(spans: list[Span], count: int) -> float:

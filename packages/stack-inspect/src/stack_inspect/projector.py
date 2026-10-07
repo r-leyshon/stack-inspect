@@ -10,6 +10,8 @@ if TYPE_CHECKING:
 
 EdgeSource = Literal["observed", "inferred", "declared"]
 
+DUPLICATE_EDGE_MIN = 2
+
 
 @dataclass
 class GraphNode:
@@ -76,6 +78,7 @@ def project(events: list[GraphEvent]) -> ProjectedGraph:
             continue
         _edges_for_event(edge_index, spans, event, span)
 
+    _link_duplicates(edge_index, spans, spans_by_trace)
     return ProjectedGraph(nodes=nodes, edges=list(edge_index.values()), spans_by_trace=spans_by_trace)
 
 
@@ -176,3 +179,51 @@ def _add_edge(
         return
     edge.count += 1
     edge.last_seen = seen_at
+
+
+def _duplicate_group_key(span: Span) -> str | None:
+    """Return a key that groups equivalent requests or queries inside one trace."""
+    if span.kind == "request":
+        method = str(span.attributes.get("method", "GET"))
+        path = str(span.attributes.get("path", span.name))
+        return f"request:{method} {path}"
+    if span.kind == "query":
+        fingerprint = str(span.attributes.get("fingerprint", span.node_key))
+        return f"query:{fingerprint}"
+    return None
+
+
+def _link_duplicates(
+    edge_index: dict[tuple[str, str, str], GraphEdge],
+    spans: dict[str, Span],
+    spans_by_trace: dict[str, list[Span]],
+) -> None:
+    """Record each extra request or query as a counted ``duplicated`` edge.
+
+    The first occurrence stays the reference. Each later one draws from its
+    parent when there is one, otherwise from the first occurrence's parent, so
+    fifteen runs of the same work become one edge with a high count rather
+    than fifteen nodes. A link that would start and end on the same node is
+    skipped: the node's own count already carries that multiplicity.
+    """
+    for trace_spans in spans_by_trace.values():
+        groups: dict[str, list[Span]] = {}
+        for span in trace_spans:
+            key = _duplicate_group_key(span)
+            if key is None:
+                continue
+            groups.setdefault(key, []).append(span)
+        for group in groups.values():
+            if len(group) < DUPLICATE_EDGE_MIN:
+                continue
+            ordered = sorted(group, key=lambda item: item.start)
+            first = ordered[0]
+            first_parent = spans.get(first.parent_id) if first.parent_id else None
+            for span in ordered[1:]:
+                parent = spans.get(span.parent_id) if span.parent_id else None
+                origin_span = parent or first_parent
+                if origin_span is None:
+                    continue
+                if origin_span.node_key == span.node_key:
+                    continue
+                _add_edge(edge_index, origin_span.node_key, span.node_key, "duplicated", span.start)

@@ -97,6 +97,51 @@ def test_repeated_query_finding() -> None:
     findings = analyse(events)
     match = next(finding for finding in findings if finding.code == "repeated-query")
     assert match.at == events[-1]["ts"]
+    assert match.node_keys == ("db:query:same",)
+
+
+def test_duplicated_edge_counts_extra_runs() -> None:
+    """Extra runs of the same request become one duplicated edge with a count."""
+    request = {
+        "nodeKey": "api:request:GET /api/dashboard",
+        "name": "GET /api/dashboard",
+        "attributes": {"method": "GET", "path": "/api/dashboard"},
+    }
+    events = [
+        _event(id="parent", nodeKey="browser:interaction:load", kind="interaction", layer="browser", name="load"),
+        _event(id="a", parentId="parent", ts=2, **request),
+        _event(id="b", parentId="parent", ts=3, phase="instant", **request),
+        _event(id="c", parentId="parent", ts=4, phase="instant", **request),
+    ]
+    edges = [edge for edge in project(events).edges if edge.kind == "duplicated"]
+    assert len(edges) == 1
+    assert edges[0].origin == "browser:interaction:load"
+    assert edges[0].target == "api:request:GET /api/dashboard"
+    assert edges[0].count == len(events) - 2  # parent plus the first request are not extras
+
+
+def test_duplicated_edge_skips_self_loops() -> None:
+    """Repeated work on one node without a parent does not draw a loop."""
+    events = [
+        _event(
+            id="a",
+            ts=1,
+            nodeKey="api:request:GET /api/dashboard",
+            name="GET /api/dashboard",
+            attributes={"method": "GET", "path": "/api/dashboard"},
+        ),
+        _event(
+            id="b",
+            ts=2,
+            phase="instant",
+            nodeKey="api:request:GET /api/dashboard",
+            name="GET /api/dashboard",
+            attributes={"method": "GET", "path": "/api/dashboard"},
+        ),
+    ]
+    graph = project(events)
+    assert graph.nodes["api:request:GET /api/dashboard"].count == len(events)
+    assert not any(edge.kind == "duplicated" for edge in graph.edges)
 
 
 def test_cors_masked_server_error() -> None:
@@ -134,10 +179,24 @@ def test_rejected_preflight_names_the_header() -> None:
 def test_duplicate_request() -> None:
     """The same method and path twice in one trace is a duplicate."""
     events = [
-        _event(id="a", ts=1, attributes={"method": "GET", "path": "/api/dashboard"}),
-        _event(id="b", ts=2, phase="instant", attributes={"method": "GET", "path": "/api/dashboard"}),
+        _event(
+            id="a",
+            ts=1,
+            nodeKey="api:request:GET /api/dashboard",
+            name="GET /api/dashboard",
+            attributes={"method": "GET", "path": "/api/dashboard"},
+        ),
+        _event(
+            id="b",
+            ts=2,
+            phase="instant",
+            nodeKey="api:request:GET /api/dashboard",
+            name="GET /api/dashboard",
+            attributes={"method": "GET", "path": "/api/dashboard"},
+        ),
     ]
-    assert any(finding.code == "duplicate-request" for finding in analyse(events))
+    match = next(finding for finding in analyse(events) if finding.code == "duplicate-request")
+    assert match.node_keys == ("api:request:GET /api/dashboard",)
 
 
 def test_sequential_queries() -> None:

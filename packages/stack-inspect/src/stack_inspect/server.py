@@ -126,6 +126,7 @@ def create_app(log: EventLog, roots: list[Path] | None = None) -> FastAPI:  # no
                     "traceId": finding.trace_id,
                     "detail": finding.detail,
                     "at": finding.at,
+                    "nodeKeys": list(finding.node_keys),
                 }
                 for finding in analyse(log.all_events())
             ],

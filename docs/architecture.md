@@ -180,6 +180,8 @@ Rules run over the projected graph and raise findings in the UI:
 - A stream reconnecting repeatedly, or messages arriving with no observed consumer.
 - Work finishing after the user-visible result was already rendered.
 
+Each finding names the `nodeKey`s it is about. Opening one in the UI paints those nodes red and emphasises any `duplicated` edges that join them. Extra runs of the same request or query stay one node; the projector records a counted `duplicated` edge from a parent when one exists, so the count carries the multiplicity. A link that would start and end on the same node is not drawn.
+
 ## 10. Development-only guarantee
 
 Summarised from [ADR 0006](adr/0006-development-only-guarantee.md): adapters are opt-in, refuse to start unless an explicit development flag is set, refuse to start in production builds, and bind the collector to `localhost` only.

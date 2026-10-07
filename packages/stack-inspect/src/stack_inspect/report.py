@@ -48,6 +48,7 @@ def build_report(
                 "title": finding.title,
                 "traceId": finding.trace_id,
                 "detail": finding.detail,
+                "nodeKeys": list(finding.node_keys),
             }
             for finding in findings
         ],
