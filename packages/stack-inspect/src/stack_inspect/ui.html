@@ -429,6 +429,7 @@
       selected: "",
       focus: "",
       openFinding: "",
+      highlight: new Set(),
       query: "",
       scope: "trace",
       live: true,
@@ -718,21 +719,30 @@
       }
     }
 
+    function findingKey(finding) {
+      const nodes = Array.isArray(finding.nodeKeys) ? finding.nodeKeys.join("|") : "";
+      return `${finding.code}:${finding.traceId}:${nodes}:${finding.detail || ""}`;
+    }
+
+    function openFindingRecord() {
+      return state.findings.find((finding) => findingKey(finding) === state.openFinding) || null;
+    }
+
     function renderFindings() {
       const list = document.getElementById("findings");
       const explain = document.getElementById("explain");
       const at = cutoff();
       const visibleFindings = state.findings.filter((finding) => at == null || finding.at <= at);
       const markup = visibleFindings.map((finding) => {
-        const key = `${finding.code}:${finding.traceId}`;
+        const key = findingKey(finding);
         const open = key === state.openFinding;
         return `<li><button type="button" class="finding" data-finding="${escapeText(key)}" data-trace="${escapeText(finding.traceId)}" aria-expanded="${open}">` +
           `<strong>${escapeText(finding.title)}</strong>` +
           `<span class="meta">${escapeText(finding.detail)}</span></button></li>`;
       }).join("") || `<li class="empty">No findings in the current log.</li>`;
       if (list.innerHTML !== markup) list.innerHTML = markup;
-      const open = visibleFindings.find((finding) => `${finding.code}:${finding.traceId}` === state.openFinding);
-      if (!open) {
+      const open = openFindingRecord();
+      if (!open || !visibleFindings.some((finding) => findingKey(finding) === state.openFinding)) {
         explain.hidden = true;
         return;
       }
@@ -767,6 +777,11 @@
       }
       state.edges = graph.edges.filter((edge) => edge.from !== edge.to);
       rebuildSeen();
+    }
+
+    function syncHighlight() {
+      const open = openFindingRecord();
+      state.highlight = new Set(Array.isArray(open?.nodeKeys) ? open.nodeKeys : []);
     }
 
     function rebuildSeen() {
@@ -819,6 +834,7 @@
       if (!state.layers.has(node.layer)) return false;
       if (state.hideAssets && isAsset(node.name)) return false;
       if (state.query && !`${node.name} ${node.kind}`.toLowerCase().includes(state.query)) return false;
+      if (state.highlight.has(node.nodeKey)) return true;
       if (state.scope === "trace") {
         const keys = traceKeys();
         if (keys.size === 0) return true;
@@ -933,16 +949,33 @@
           if (edge.to === state.hover) neighbours.add(edge.from);
         }
       }
+      const flagged = state.highlight.size > 0;
       for (const edge of visibleEdges()) {
         const a = state.nodes.get(edge.from);
         const b = state.nodes.get(edge.to);
+        if (!a || !b) continue;
         const from = toScreen(a.x, a.y);
         const to = toScreen(b.x, b.y);
         const declared = edge.source === "declared";
-        const hot = !state.hover || neighbours.has(edge.from) || neighbours.has(edge.to);
+        const duplicated = edge.kind === "duplicated";
+        const onFinding = state.highlight.has(edge.from) || state.highlight.has(edge.to);
+        const hot = (!state.hover || neighbours.has(edge.from) || neighbours.has(edge.to))
+          && (!flagged || onFinding || !duplicated);
+        const emphasise = flagged && onFinding && (duplicated || (state.highlight.has(edge.from) && state.highlight.has(edge.to)));
         context.setLineDash(declared ? [5, 4] : []);
-        context.strokeStyle = declared ? (hot ? "#e0b15acc" : "#e0b15a44") : (hot ? "#c8c2b688" : "#c8c2b622");
-        context.lineWidth = Math.min(3.5, 0.6 + Math.log2(edge.count + 1));
+        if (emphasise) {
+          context.strokeStyle = "#ff5c5ccc";
+          context.lineWidth = Math.min(5, 1.4 + Math.log2(edge.count + 1));
+        } else if (declared) {
+          context.strokeStyle = hot ? "#e0b15acc" : "#e0b15a44";
+          context.lineWidth = Math.min(3.5, 0.6 + Math.log2(edge.count + 1));
+        } else if (duplicated) {
+          context.strokeStyle = hot ? "#ff8a8a88" : "#ff8a8a22";
+          context.lineWidth = Math.min(4, 0.8 + Math.log2(edge.count + 1));
+        } else {
+          context.strokeStyle = hot ? "#c8c2b688" : "#c8c2b622";
+          context.lineWidth = Math.min(3.5, 0.6 + Math.log2(edge.count + 1));
+        }
         context.beginPath();
         context.moveTo(from.x, from.y);
         context.lineTo(to.x, to.y);
@@ -952,21 +985,22 @@
       for (const node of nodes) {
         if (!keys.has(node.nodeKey)) continue;
         const point = toScreen(node.x, node.y);
-        const dim = state.hover && !neighbours.has(node.nodeKey);
+        const onFinding = state.highlight.has(node.nodeKey);
+        const dim = (state.hover && !neighbours.has(node.nodeKey)) || (flagged && !onFinding);
         const radius = 5 + Math.min(9, Math.sqrt(node.count || 1) * 2);
         context.globalAlpha = dim ? 0.18 : 1;
-        context.fillStyle = LAYER_COLOR[node.layer] || "#ddd";
+        context.fillStyle = onFinding ? "#ff5c5c" : (LAYER_COLOR[node.layer] || "#ddd");
         context.beginPath();
         context.arc(point.x, point.y, radius, 0, Math.PI * 2);
         context.fill();
-        if (node.nodeKey === state.focus) {
-          context.strokeStyle = "#fff";
-          context.lineWidth = 1.5;
+        if (onFinding || node.nodeKey === state.focus) {
+          context.strokeStyle = onFinding ? "#ffd0d0" : "#fff";
+          context.lineWidth = onFinding ? 2 : 1.5;
           context.stroke();
         }
-        const labelled = !dim && (state.showNames || neighbours.has(node.nodeKey));
+        const labelled = state.showNames || neighbours.has(node.nodeKey) || onFinding;
         if (labelled) {
-          context.fillStyle = "#e8e4da";
+          context.fillStyle = onFinding ? "#ffd0d0" : "#e8e4da";
           context.font = "11px ui-sans-serif, system-ui, sans-serif";
           context.fillText(node.name, point.x + radius + 4, point.y + 3);
         }
@@ -998,20 +1032,27 @@
       tip.style.left = `${x + 12}px`;
       tip.style.top = `${y + 12}px`;
       const service = node.service ? `${node.service} · ` : "";
-      tip.textContent = `${node.name}\n${service}${LAYER_LABEL[node.layer] || node.layer} · ${node.kind} · seen ${node.count}\n${links.length} link${links.length === 1 ? "" : "s"}`;
+      const times = node.count === 1 ? "1 time" : `${node.count} times`;
+      const linkWord = links.length === 1 ? "1 link" : `${links.length} links`;
+      tip.textContent = `${node.name}\n${service}${LAYER_LABEL[node.layer] || node.layer} · ${node.kind} · seen ${times}\n${linkWord}`;
     }
 
-    function fit() {
-      const nodes = visibleNodes();
-      if (nodes.length === 0) return;
-      const xs = nodes.map((node) => node.x);
-      const ys = nodes.map((node) => node.y);
+    function fit(nodes) {
+      const targets = Array.isArray(nodes) ? nodes : visibleNodes();
+      if (targets.length === 0) return;
+      const xs = targets.map((node) => node.x);
+      const ys = targets.map((node) => node.y);
       state.camera.x = (Math.min(...xs) + Math.max(...xs)) / 2;
       state.camera.y = (Math.min(...ys) + Math.max(...ys)) / 2;
       const rect = canvas.getBoundingClientRect();
       const width = Math.max(...xs) - Math.min(...xs) + 160;
       const height = Math.max(...ys) - Math.min(...ys) + 160;
       state.camera.k = Math.max(0.12, Math.min(1.8, Math.min(rect.width / width, rect.height / height)));
+    }
+
+    function fitHighlight() {
+      const targets = visibleNodes().filter((node) => state.highlight.has(node.nodeKey));
+      fit(targets.length > 0 ? targets : null);
     }
 
     function frameTarget() {
@@ -1067,6 +1108,7 @@
       ]);
       state.traces = traces.traces;
       state.findings = findings.findings;
+      syncHighlight();
       const listed = listedTraces();
       const selectedBefore = state.selected;
       if (!state.playing && state.cursor == null && state.live && listed.length > 0) {
@@ -1269,18 +1311,27 @@
     document.getElementById("findings").addEventListener("click", (event) => {
       const button = event.target.closest("button[data-finding]");
       if (!button) return;
-      state.openFinding = state.openFinding === button.dataset.finding ? "" : button.dataset.finding;
-      state.selected = button.dataset.trace;
-      stopPlayback(true);
+      const closing = state.openFinding === button.dataset.finding;
+      state.openFinding = closing ? "" : button.dataset.finding;
+      syncHighlight();
+      stopPlayback(false);
       state.live = false;
       document.getElementById("live").setAttribute("aria-pressed", "false");
-      state.scope = "trace";
-      document.getElementById("scope").setAttribute("aria-pressed", "true");
-      document.getElementById("scope").textContent = "This trace";
-      renderTraces();
-      renderTimeline();
-      renderFindings();
-      fit();
+      const scope = document.getElementById("scope");
+      if (closing) {
+        state.scope = "all";
+        scope.setAttribute("aria-pressed", "false");
+        scope.textContent = "All activity";
+      } else {
+        state.selected = button.dataset.trace;
+        state.scope = "trace";
+        scope.setAttribute("aria-pressed", "true");
+        scope.textContent = "This trace";
+      }
+      paintPlayback();
+      placePlayhead();
+      if (state.highlight.size > 0) fitHighlight();
+      else fit();
     });
 
     document.getElementById("search").addEventListener("input", (event) => {
@@ -1339,6 +1390,7 @@
       state.selected = "";
       state.focus = "";
       state.openFinding = "";
+      state.highlight = new Set();
       state.live = true;
       state.sourceNote = "";
       stopPlayback(true);
@@ -1353,15 +1405,15 @@
     const HELP = {
       traces: "Each row is one story: a click or a job, and everything that shared its trace. Select a row to hold that story still. That turns Live off.",
       timeline: "The ruler is the whole recording, with the long pauses between clicks taken out so the clips sit together. The orange line is the playhead. Press Play to start again from the beginning and watch the graph grow, and press it again to pause. Drag the ruler or the playhead triangle to an exact moment. Clips that have not happened yet stay hidden. This trace, Hide assets and the layer buttons can narrow the picture. Live parks the playhead at the end.",
-      graph: "Each dot is something that ran. Once the playhead has reached it, the dot stays while playback moves forward. A line means one event recorded that it happened inside another, or because of another. A dashed line was read from the source when you pressed Read source, and it appears only when both ends have already run. Sharing a trace does not draw a line, so jobs and worker can be in the same story with nothing joining them. Drag the background to move around, scroll to zoom, and drag a dot to pin it. Hover a dot to see what it connects to. Names starts off.",
-      names: "Shows the name beside every dot. It starts off. With it off, hovering a dot still names that dot and every dot joined to it.",
+      graph: "Each dot is something that ran. Once the playhead has reached it, the dot stays while playback moves forward. A line means one event recorded that it happened inside another, or because of another. A rose line is duplicated work: the same request or query ran again, and its thickness follows the count. A dashed line was read from the source when you pressed Read source, and it appears only when both ends have already run. Sharing a trace does not draw a line, so jobs and worker can be in the same story with nothing joining them. Drag the background to move around, scroll to zoom, and drag a dot to pin it. Hover a dot to see what it connects to. Names starts off.",
+      names: "Shows the name beside every dot, including while a finding is open. It starts off. With it off, hovering a dot still names that dot and every dot joined to it.",
       search: "Type part of a name to hide dots that do not match. Clear the box to show them again.",
       live: "Follows whatever just happened and recentres the picture. Choosing a trace in the list turns this off. Press it again to follow the newest story.",
       scope: "This trace shows only the story selected on the left, plus anything already joined to it by a line. All activity shows every story from this session. Press Fit if the extra dots sit outside the view. Hide assets is on by default, so many of those extra dots stay hidden.",
       layers: "Each button hides or shows dots from that part of the stack. They all start on.",
       assets: "Hides files Next.js loads just to draw the page: names containing /_next/ or webpack. It starts on. Turn it off to see those files, then press Fit.",
-      fit: "Recentres and zooms so every dot currently shown fits on the screen.",
-      findings: "Notes about what looks off in a story, such as a query that ran many times. Open one to read what it means. That also selects its trace and turns Live off.",
+      fit: "Recentres and zooms so every dot currently shown fits on the screen. While a finding is open, Fit frames the highlighted dots.",
+      findings: "Notes about what looks off in a story, such as a query that ran many times. Open one to paint its nodes red, emphasise duplicated links, select its trace and turn Live off. The playhead stays where it is. Click the finding again to clear the highlight and show the whole graph at that same moment.",
     };
 
     const help = document.getElementById("help");
@@ -1425,7 +1477,10 @@
       });
     }
 
-    document.getElementById("fit").addEventListener("click", fit);
+    document.getElementById("fit").addEventListener("click", () => {
+      if (state.highlight.size > 0) fitHighlight();
+      else fit();
+    });
 
     canvas.addEventListener("wheel", (event) => {
       event.preventDefault();

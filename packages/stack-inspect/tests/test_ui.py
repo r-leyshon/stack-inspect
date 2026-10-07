@@ -39,6 +39,9 @@ def test_page_draws_the_graph_and_traces_carry_layers(tmp_path: Path) -> None:
     assert 'aria-pressed="false">Names' in page.text
     assert "hovering a dot still names" in page.text
     assert "Drag the ruler or the playhead triangle" in page.text
+    assert "paint its nodes red" in page.text
+    assert "whole graph at that same moment" in page.text
+    assert "including while a finding is open" in page.text
     assert 'data-help="live"' in page.text
     assert "hides the status" in page.text
     span = client.get("/v1/traces").json()["traces"][0]["spans"][0]
