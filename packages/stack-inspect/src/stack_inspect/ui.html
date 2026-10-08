@@ -337,14 +337,19 @@
       z-index: 3;
     }
     #stage { position: relative; flex: 1; min-height: 0; }
-    #graph, #sequence { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+    #graph, #sequence, #latency { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
     #graph { cursor: grab; }
     #graph.dragging, #sequence.dragging { cursor: grabbing; }
     #sequence { overflow: hidden; cursor: grab; touch-action: none; }
+    #latency { cursor: crosshair; }
     #sequence svg { width: 100%; height: 100%; display: block; }
     #sequence text { font-family: ui-sans-serif, system-ui, sans-serif; }
-    #graph-wrap[data-view="graph"] #sequence { visibility: hidden; pointer-events: none; }
-    #graph-wrap[data-view="sequence"] #graph { visibility: hidden; pointer-events: none; }
+    #graph-wrap[data-view="graph"] #sequence,
+    #graph-wrap[data-view="graph"] #latency,
+    #graph-wrap[data-view="sequence"] #graph,
+    #graph-wrap[data-view="sequence"] #latency,
+    #graph-wrap[data-view="latency"] #graph,
+    #graph-wrap[data-view="latency"] #sequence { visibility: hidden; pointer-events: none; }
     .graph-tools {
       display: flex;
       gap: 0.55rem 0.7rem;
@@ -352,7 +357,8 @@
       align-items: flex-start;
       padding: 0.85rem 0.85rem 0.35rem;
     }
-    .layer-group { display: inline-flex; gap: 0.4rem; }
+    .layer-group { display: inline-flex; gap: 0.4rem; align-items: center; }
+    .view-switch { gap: 0.85rem; }
     input[type="search"], .tool {
       background: #12161ccc;
       color: var(--text);
@@ -488,12 +494,19 @@
     </section>
     <section id="graph-wrap" data-view="graph" aria-label="Dependency graph">
       <div class="graph-tools">
-        <span class="hint">
-          <span class="layer-group" role="group" aria-label="Diagram">
+        <span class="layer-group view-switch" role="group" aria-label="Diagram">
+          <span class="hint">
             <button class="tool" type="button" id="view-graph" aria-pressed="true">Graph</button>
-            <button class="tool" type="button" id="view-sequence" aria-pressed="false">Sequence</button>
+            <button type="button" class="info" data-help="view-graph" aria-label="About Graph">i</button>
           </span>
-          <button type="button" class="info" data-help="view" aria-label="About the diagram">i</button>
+          <span class="hint">
+            <button class="tool" type="button" id="view-sequence" aria-pressed="false">Sequence</button>
+            <button type="button" class="info" data-help="view-sequence" aria-label="About Sequence">i</button>
+          </span>
+          <span class="hint">
+            <button class="tool" type="button" id="view-latency" aria-pressed="false">Latency</button>
+            <button type="button" class="info" data-help="view-latency" aria-label="About Latency">i</button>
+          </span>
         </span>
         <span class="hint">
           <input id="search" type="search" placeholder="Filter nodes" aria-label="Filter nodes" />
@@ -533,6 +546,7 @@
       <div id="stage">
         <canvas id="graph"></canvas>
         <div id="sequence" aria-label="Sequence diagram"></div>
+        <canvas id="latency" aria-label="Latency chart"></canvas>
       </div>
       <div id="tip"></div>
     </section>
@@ -579,6 +593,7 @@
       findings: [],
       selected: "",
       focus: "",
+      followFocus: false,
       openFinding: "",
       highlight: new Set(),
       query: "",
@@ -598,6 +613,12 @@
       laidOut: new Set(),
       layers: new Set(["browser", "next", "api", "db"]),
       view: "graph",
+      latencyGroups: new Map(),
+      latencyMedians: new Map(),
+      latencyWindow: null,
+      latencyScale: { min: 1, max: 1000, ready: false },
+      latencyScaleAt: null,
+      latencyScaleKey: "",
       sequenceCamera: { x: 0, y: 0, k: 1 },
       sequenceSig: "",
       sequenceModel: null,
@@ -607,8 +628,10 @@
     };
 
     const canvas = document.getElementById("graph");
+    const latencyCanvas = document.getElementById("latency");
     const tip = document.getElementById("tip");
     const context = canvas.getContext("2d");
+    const latencyContext = latencyCanvas.getContext("2d");
 
     function escapeText(value) {
       return String(value).replace(/[&<>"']/g, (character) => ({
@@ -1057,7 +1080,8 @@
       const edges = visibleEdges().map((edge) => `${edge.from}>${edge.to}:${edge.kind}:${edge.count}:${edge.followed || 0}:${edge.source}`).join("\n");
       const highlight = [...state.highlight].sort().join("\n");
       const layers = [...state.layers].sort().join("\n");
-      return `${nodes}|${edges}|${highlight}|${layers}|${state.hover}|${state.focus}|${state.showNames}`;
+      const pace = [...state.latencyMedians.entries()].map(([key, ms]) => `${key}:${Math.round(ms)}`).sort().join("\n");
+      return `${nodes}|${edges}|${highlight}|${layers}|${state.hover}|${state.focus}|${state.showNames}|${pace}`;
     }
 
     function sequenceNeighbours() {
@@ -1076,6 +1100,284 @@
       return `${name.slice(0, 25)}…`;
     }
 
+    function medianOf(values) {
+      if (values.length === 0) return null;
+      const sorted = [...values].sort((left, right) => left - right);
+      const mid = Math.floor(sorted.length / 2);
+      if (sorted.length % 2 === 1) return sorted[mid];
+      return (sorted[mid - 1] + sorted[mid]) / 2;
+    }
+
+    function mixHex(from, to, amount) {
+      const channel = (hex, index) => Number.parseInt(hex.slice(index, index + 2), 16);
+      const mixed = [1, 3, 5].map((index) => Math.round(channel(from, index) + (channel(to, index) - channel(from, index)) * amount));
+      return `#${mixed.map((value) => value.toString(16).padStart(2, "0")).join("")}`;
+    }
+
+    function latencyColour(milliseconds) {
+      const t = Math.min(1, Math.max(0, Math.log(milliseconds / 50) / Math.log(20)));
+      if (t <= 0.5) return mixHex("#3ddc97", "#f2c14e", t / 0.5);
+      return mixHex("#f2c14e", "#ff6a3d", (t - 0.5) / 0.5);
+    }
+
+    function formatDuration(milliseconds) {
+      if (milliseconds < 1000) return `${Math.round(milliseconds)} ms`;
+      const seconds = milliseconds / 1000;
+      if (Math.abs(seconds - Math.round(seconds)) < 0.05) return `${Math.round(seconds)} s`;
+      return `${seconds.toFixed(1)} s`;
+    }
+
+    function decadeDomain(groups) {
+      let fastest = Infinity;
+      let slowest = 0;
+      for (const series of groups.values()) {
+        for (const run of series) {
+          if (run.duration <= 0) continue;
+          fastest = Math.min(fastest, run.duration);
+          slowest = Math.max(slowest, run.duration);
+        }
+      }
+      if (!Number.isFinite(fastest) || slowest <= 0) return { min: 1, max: 1000, ready: false };
+      const low = 10 ** Math.floor(Math.log10(fastest));
+      const high = 10 ** Math.ceil(Math.log10(slowest) - 1e-9);
+      const onLow = Math.abs(fastest - low) <= low * 1e-6;
+      const onHigh = Math.abs(slowest - high) <= high * 1e-6;
+      const min = Math.max(1, onLow ? low / 10 : low);
+      const max = onHigh ? high * 10 : high;
+      return { min, max: Math.max(max, min * 10), ready: true };
+    }
+
+    function updateLatencyScale() {
+      const fitted = decadeDomain(state.latencyGroups);
+      const arranged = buildArrangement();
+      const at = arranged.stories.length === 0 ? 0 : playheadDisplay(arranged);
+      const key = [...state.latencyGroups.keys()].sort().join("\n");
+      const forward = state.latencyScaleAt != null && at + 0.5 >= state.latencyScaleAt && key === state.latencyScaleKey;
+      if (forward && state.latencyScale.ready && fitted.ready) {
+        state.latencyScale = {
+          min: Math.min(state.latencyScale.min, fitted.min),
+          max: Math.max(state.latencyScale.max, fitted.max),
+          ready: true,
+        };
+      } else {
+        state.latencyScale = fitted;
+      }
+      state.latencyScaleAt = at;
+      state.latencyScaleKey = key;
+    }
+
+    function refreshLatency() {
+      const at = cutoff();
+      const arranged = buildArrangement();
+      const storyByTrace = new Map(arranged.stories.map((story) => [story.trace.traceId, story]));
+      const grouped = new Map();
+      for (const trace of state.traces) {
+        const story = storyByTrace.get(trace.traceId);
+        if (!story) continue;
+        for (const span of trace.spans) {
+          if (span.kind !== "request" && span.kind !== "query") continue;
+          if (span.end == null || span.end <= span.start) continue;
+          if (at != null && span.end > at) continue;
+          const node = state.nodes.get(span.nodeKey);
+          if (!node || !nodeVisible(node)) continue;
+          const series = grouped.get(node.nodeKey) || [];
+          series.push({
+            x: story.displayStart + story.map.display(span.start),
+            duration: span.end - span.start,
+          });
+          grouped.set(node.nodeKey, series);
+        }
+      }
+      const medians = new Map();
+      for (const [key, series] of grouped) {
+        series.sort((left, right) => left.x - right.x || left.duration - right.duration);
+        medians.set(key, medianOf(series.map((run) => run.duration)));
+      }
+      state.latencyGroups = grouped;
+      state.latencyMedians = medians;
+      updateLatencyScale();
+    }
+
+    function latencyWindow() {
+      const arranged = buildArrangement();
+      if (state.latencyWindow) return state.latencyWindow;
+      return { start: 0, end: Math.max(arranged.end, 1) };
+    }
+
+    function fitLatency(highlightOnly) {
+      refreshLatency();
+      const arranged = buildArrangement();
+      const fullEnd = Math.max(arranged.end, 1);
+      if (!highlightOnly || state.highlight.size === 0) {
+        state.latencyWindow = null;
+        return;
+      }
+      const xs = [];
+      for (const [key, series] of state.latencyGroups) {
+        if (!state.highlight.has(key)) continue;
+        for (const run of series) xs.push(run.x);
+      }
+      if (xs.length === 0) {
+        state.latencyWindow = null;
+        return;
+      }
+      const min = Math.min(...xs);
+      const max = Math.max(...xs);
+      const pad = Math.max(40, (max - min) * 0.08);
+      state.latencyWindow = { start: Math.max(0, min - pad), end: Math.min(fullEnd, Math.max(max + pad, min + 1)) };
+    }
+
+    function latencyPlot(rect) {
+      const left = 58;
+      const right = Math.max(left + 1, rect.width - 16);
+      const top = 16;
+      const bottom = Math.max(top + 1, rect.height - 28);
+      return { left, right, top, bottom };
+    }
+
+    function latencyY(milliseconds, plot) {
+      const scale = state.latencyScale;
+      const value = Math.min(scale.max, Math.max(scale.min, milliseconds));
+      const span = Math.log(scale.max / scale.min) || 1;
+      const t = Math.log(value / scale.min) / span;
+      return plot.bottom - t * (plot.bottom - plot.top);
+    }
+
+    function latencyMarks() {
+      const marks = [];
+      let mark = state.latencyScale.min;
+      for (let step = 0; step < 12 && mark <= state.latencyScale.max * 1.001; step += 1) {
+        marks.push(mark);
+        mark *= 10;
+      }
+      return marks;
+    }
+
+    function latencyX(display, plot, start, end) {
+      const span = Math.max(end - start, 1);
+      return plot.left + ((display - start) / span) * (plot.right - plot.left);
+    }
+
+    function distanceToSegment(px, py, ax, ay, bx, by) {
+      const dx = bx - ax;
+      const dy = by - ay;
+      const length = dx * dx + dy * dy;
+      if (length === 0) return Math.hypot(px - ax, py - ay);
+      const t = Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / length));
+      return Math.hypot(px - (ax + t * dx), py - (ay + t * dy));
+    }
+
+    function hitLatency(offsetX, offsetY) {
+      const rect = latencyCanvas.getBoundingClientRect();
+      const plot = latencyPlot(rect);
+      const range = latencyWindow();
+      let found = "";
+      let best = 16;
+      for (const [key, series] of state.latencyGroups) {
+        const points = series.map((run) => ({
+          x: latencyX(run.x, plot, range.start, range.end),
+          y: latencyY(run.duration, plot),
+        }));
+        for (const point of points) {
+          const distance = Math.hypot(offsetX - point.x, offsetY - point.y);
+          if (distance >= best) continue;
+          best = distance;
+          found = key;
+        }
+        for (let index = 1; index < points.length; index += 1) {
+          const distance = distanceToSegment(offsetX, offsetY, points[index - 1].x, points[index - 1].y, points[index].x, points[index].y);
+          if (distance >= best) continue;
+          best = distance;
+          found = key;
+        }
+      }
+      return found;
+    }
+
+    function drawLatency() {
+      const rect = latencyCanvas.getBoundingClientRect();
+      latencyContext.clearRect(0, 0, rect.width, rect.height);
+      if (rect.width < 2 || rect.height < 2) return;
+      const plot = latencyPlot(rect);
+      const range = latencyWindow();
+      const arranged = buildArrangement();
+      latencyContext.font = "11px ui-sans-serif, system-ui, sans-serif";
+      latencyContext.strokeStyle = "#c8c2b618";
+      latencyContext.lineWidth = 1;
+      latencyContext.fillStyle = "#8d939c";
+      latencyContext.textAlign = "right";
+      latencyContext.textBaseline = "middle";
+      for (const mark of latencyMarks()) {
+        const y = latencyY(mark, plot);
+        latencyContext.beginPath();
+        latencyContext.moveTo(plot.left, y);
+        latencyContext.lineTo(plot.right, y);
+        latencyContext.stroke();
+        latencyContext.textBaseline = y <= plot.top + 1 ? "top" : (y >= plot.bottom - 1 ? "bottom" : "middle");
+        latencyContext.fillText(formatDuration(mark), plot.left - 8, y);
+      }
+      latencyContext.textAlign = "center";
+      latencyContext.textBaseline = "top";
+      for (let index = 0; index < 5; index += 1) {
+        const display = range.start + ((range.end - range.start) * index) / 4;
+        const x = latencyX(display, plot, range.start, range.end);
+        latencyContext.fillText(formatOffset(display, range.end - range.start), x, plot.bottom + 8);
+      }
+      if (state.latencyGroups.size === 0) {
+        latencyContext.textAlign = "center";
+        latencyContext.textBaseline = "middle";
+        latencyContext.fillText("No finished requests at the playhead yet.", (plot.left + plot.right) / 2, (plot.top + plot.bottom) / 2);
+      }
+      const flagged = state.highlight.size > 0;
+      const entries = [...state.latencyGroups.entries()].sort((left, right) => {
+        const leftOn = state.highlight.has(left[0]) || state.hover === left[0] || state.focus === left[0];
+        const rightOn = state.highlight.has(right[0]) || state.hover === right[0] || state.focus === right[0];
+        return Number(leftOn) - Number(rightOn);
+      });
+      for (const [key, series] of entries) {
+        const node = state.nodes.get(key);
+        if (!node) continue;
+        const onFinding = state.highlight.has(key);
+        const emphasised = onFinding || state.hover === key || state.focus === key;
+        const dim = (flagged && !onFinding) || ((state.hover || state.focus) && !emphasised);
+        latencyContext.globalAlpha = dim ? 0.18 : 1;
+        latencyContext.strokeStyle = LAYER_COLOR[node.layer] || "#ddd";
+        latencyContext.fillStyle = latencyContext.strokeStyle;
+        latencyContext.lineWidth = emphasised ? 2.25 : 1.35;
+        latencyContext.beginPath();
+        series.forEach((run, index) => {
+          const x = latencyX(run.x, plot, range.start, range.end);
+          const y = latencyY(run.duration, plot);
+          if (index === 0) latencyContext.moveTo(x, y);
+          else latencyContext.lineTo(x, y);
+        });
+        if (series.length > 1) latencyContext.stroke();
+        for (const run of series) {
+          latencyContext.beginPath();
+          latencyContext.arc(latencyX(run.x, plot, range.start, range.end), latencyY(run.duration, plot), emphasised ? 3.4 : 2.4, 0, Math.PI * 2);
+          latencyContext.fill();
+        }
+        if (state.showNames || emphasised) {
+          const last = series[series.length - 1];
+          latencyContext.fillStyle = onFinding ? "#fff" : "#e8e4da";
+          latencyContext.textAlign = "left";
+          latencyContext.textBaseline = "bottom";
+          latencyContext.fillText(shortName(node.name, state.showNames || state.hover === key), latencyX(last.x, plot, range.start, range.end) + 6, latencyY(last.duration, plot) - 4);
+        }
+        latencyContext.globalAlpha = 1;
+      }
+      const at = playheadDisplay(arranged);
+      if (at >= range.start && at <= range.end) {
+        const x = latencyX(at, plot, range.start, range.end);
+        latencyContext.strokeStyle = "#ff8a3d";
+        latencyContext.lineWidth = 1;
+        latencyContext.beginPath();
+        latencyContext.moveTo(x, plot.top);
+        latencyContext.lineTo(x, plot.bottom);
+        latencyContext.stroke();
+      }
+    }
+
     function messageStyle(row, hot, flagged) {
       const edge = row.edge;
       const onFinding = state.highlight.has(row.from.nodeKey) || state.highlight.has(row.to.nodeKey);
@@ -1083,7 +1385,8 @@
       const declared = edge?.source === "declared";
       const both = state.highlight.has(row.from.nodeKey) && state.highlight.has(row.to.nodeKey);
       const emphasise = flagged && onFinding && Boolean(edge) && (duplicated || both);
-      const dim = (state.hover && !hot) || (flagged && !onFinding);
+      const focused = Boolean(state.focus) && (row.from.nodeKey === state.focus || row.to.nodeKey === state.focus || row.key === state.focus);
+      const dim = (state.hover && !hot) || (flagged && !onFinding) || (state.focus && !focused && !onFinding);
       let stroke = "#c8c2b6";
       let width = 1.25;
       let dash = "";
@@ -1096,11 +1399,14 @@
       } else if (declared) {
         stroke = "#e0b15a";
         dash = "5 4";
+      } else if (state.latencyMedians.get(row.to.nodeKey) != null) {
+        stroke = latencyColour(state.latencyMedians.get(row.to.nodeKey));
+        if (duplicated) width = Math.min(4, 1.2 + Math.log2((edge.count || 1) + 1));
       } else if (duplicated) {
         stroke = "#ff8a8a";
         width = Math.min(4, 1.2 + Math.log2((edge.count || 1) + 1));
       }
-      if (state.focus === row.key && !onFinding) stroke = "#fffaf0";
+      if (focused && !onFinding) stroke = "#fffaf0";
       return { stroke, width, dash, opacity: dim ? 0.18 : 1, onFinding };
     }
 
@@ -1120,7 +1426,7 @@
       const messages = model.rows.map((row) => {
         const hot = !state.hover || neighbours.has(row.from.nodeKey) || neighbours.has(row.to.nodeKey);
         const ink = messageStyle(row, hot, flagged);
-        const expanded = state.showNames || state.hover === row.to.nodeKey || state.highlight.has(row.to.nodeKey);
+        const expanded = state.showNames || state.hover === row.to.nodeKey || state.highlight.has(row.to.nodeKey) || row.from.nodeKey === state.focus || row.to.nodeKey === state.focus;
         const count = row.edge && row.edge.count > 1 ? ` ×${row.edge.count}` : "";
         const partial = row.edge && row.edge.followed && row.from.kind === "interaction" && row.from.count > 1 && row.edge.followed < row.from.count
           ? ` ${row.edge.followed}/${row.from.count}`
@@ -1130,7 +1436,7 @@
         const same = row.from.layer === row.to.layer;
         let shape = "";
         if (!row.edge) {
-          const fill = state.focus === row.key || ink.onFinding ? ink.stroke : colour;
+          const fill = row.key === state.focus || row.from.nodeKey === state.focus || ink.onFinding ? ink.stroke : colour;
           shape = `<rect x="${row.x1 - 5}" y="${row.y - 7}" width="10" height="14" rx="3" fill="${fill}" />` +
             `<text x="${row.x1}" y="${row.y - 12}" text-anchor="middle" fill="${ink.onFinding ? "#ffd0d0" : "#e8e4da"}" font-size="11">${label}</text>`;
         } else if (same) {
@@ -1249,31 +1555,57 @@
       state.sequenceCamera.k += (k - state.sequenceCamera.k) * 0.12;
     }
 
+    function frameSequenceFocus() {
+      const model = sequenceGeometry();
+      const indexes = [];
+      model.rows.forEach((row, index) => {
+        if (row.from.nodeKey === state.focus || row.to.nodeKey === state.focus) indexes.push(index);
+      });
+      if (indexes.length === 0) return false;
+      state.sequenceModel = model;
+      frameSequence(model, Math.min(...indexes), Math.max(...indexes));
+      return true;
+    }
+
     function fitCurrent() {
       if (state.view === "sequence") fitSequence();
+      else if (state.view === "latency") fitLatency(false);
       else fit();
     }
 
     function fitCurrentHighlight() {
       if (state.view === "sequence") fitSequenceHighlight();
+      else if (state.view === "latency") fitLatency(true);
       else fitHighlight();
     }
 
     function setView(view) {
       state.view = view;
       state.drag = null;
+      state.hover = "";
+      tip.style.display = "none";
       const wrap = document.getElementById("graph-wrap");
       wrap.dataset.view = view;
-      wrap.setAttribute("aria-label", view === "sequence" ? "Sequence diagram" : "Dependency graph");
+      const labels = { graph: "Dependency graph", sequence: "Sequence diagram", latency: "Latency" };
+      wrap.setAttribute("aria-label", labels[view] || "Dependency graph");
       document.getElementById("view-graph").setAttribute("aria-pressed", view === "graph" ? "true" : "false");
       document.getElementById("view-sequence").setAttribute("aria-pressed", view === "sequence" ? "true" : "false");
+      document.getElementById("view-latency").setAttribute("aria-pressed", view === "latency" ? "true" : "false");
+      refreshLatency();
+      resize();
       if (view === "graph") {
-        resize();
+        state.followFocus = Boolean(state.focus);
         draw();
+        return;
+      }
+      state.followFocus = false;
+      if (view === "latency") {
+        drawLatency();
         return;
       }
       state.sequenceSig = sequenceSignature();
       renderSequence();
+      if (state.focus && frameSequenceFocus()) return;
       if (!state.drag) fitSequence();
     }
 
@@ -1332,12 +1664,17 @@
       }
     }
 
-    function resize() {
+    function resizeSurface(surface, surfaceContext) {
       const ratio = window.devicePixelRatio || 1;
-      const rect = canvas.getBoundingClientRect();
-      canvas.width = Math.max(1, Math.floor(rect.width * ratio));
-      canvas.height = Math.max(1, Math.floor(rect.height * ratio));
-      context.setTransform(ratio, 0, 0, ratio, 0, 0);
+      const rect = surface.getBoundingClientRect();
+      surface.width = Math.max(1, Math.floor(rect.width * ratio));
+      surface.height = Math.max(1, Math.floor(rect.height * ratio));
+      surfaceContext.setTransform(ratio, 0, 0, ratio, 0, 0);
+    }
+
+    function resize() {
+      resizeSurface(canvas, context);
+      resizeSurface(latencyCanvas, latencyContext);
       layoutClips();
       placePlayhead();
     }
@@ -1398,8 +1735,10 @@
         const declared = edge.source === "declared";
         const duplicated = edge.kind === "duplicated";
         const onFinding = state.highlight.has(edge.from) || state.highlight.has(edge.to);
+        const onFocus = state.focus && (edge.from === state.focus || edge.to === state.focus);
         const hot = (!state.hover || neighbours.has(edge.from) || neighbours.has(edge.to))
-          && (!flagged || onFinding || !duplicated);
+          && (!flagged || onFinding || !duplicated)
+          && (!state.focus || onFocus);
         const emphasise = flagged && onFinding && (duplicated || (state.highlight.has(edge.from) && state.highlight.has(edge.to)));
         context.setLineDash(declared ? [5, 4] : []);
         if (emphasise) {
@@ -1408,6 +1747,12 @@
         } else if (declared) {
           context.strokeStyle = hot ? "#e0b15acc" : "#e0b15a44";
           context.lineWidth = Math.min(3.5, 0.6 + Math.log2(edge.count + 1));
+        } else if (state.latencyMedians.get(edge.to) != null) {
+          const colour = latencyColour(state.latencyMedians.get(edge.to));
+          context.strokeStyle = hot ? `${colour}cc` : `${colour}44`;
+          context.lineWidth = duplicated
+            ? Math.min(4, 0.8 + Math.log2(edge.count + 1))
+            : Math.min(3.5, 0.6 + Math.log2(edge.count + 1));
         } else if (duplicated) {
           context.strokeStyle = hot ? "#ff8a8a88" : "#ff8a8a22";
           context.lineWidth = Math.min(4, 0.8 + Math.log2(edge.count + 1));
@@ -1422,11 +1767,13 @@
         context.setLineDash([]);
       }
       const reached = reachedRuns();
-      for (const node of nodes) {
+      const ordered = [...nodes].sort((left, right) => Number(left.nodeKey === state.focus) - Number(right.nodeKey === state.focus));
+      for (const node of ordered) {
         if (!keys.has(node.nodeKey)) continue;
         const point = toScreen(node.x, node.y);
         const onFinding = state.highlight.has(node.nodeKey);
-        const dim = (state.hover && !neighbours.has(node.nodeKey)) || (flagged && !onFinding);
+        const selected = node.nodeKey === state.focus;
+        const dim = (state.hover && !neighbours.has(node.nodeKey)) || (flagged && !onFinding) || (state.focus && !selected && !onFinding);
         const target = nodeRadius(reached.get(node.nodeKey));
         if (node.drawnRadius == null) node.drawnRadius = target;
         else node.drawnRadius += (target - node.drawnRadius) * 0.08;
@@ -1437,14 +1784,14 @@
         context.beginPath();
         context.arc(point.x, point.y, radius, 0, Math.PI * 2);
         context.fill();
-        if (onFinding || node.nodeKey === state.focus) {
-          context.strokeStyle = onFinding ? "#ffd0d0" : "#fff";
-          context.lineWidth = onFinding ? 2 : 1.5;
+        if (onFinding || selected) {
+          context.strokeStyle = selected ? "#fff" : "#ffd0d0";
+          context.lineWidth = selected ? 2.75 : 2;
           context.stroke();
         }
-        const labelled = state.showNames || neighbours.has(node.nodeKey) || onFinding;
+        const labelled = state.showNames || neighbours.has(node.nodeKey) || onFinding || selected;
         if (labelled) {
-          context.fillStyle = onFinding ? "#ffd0d0" : "#e8e4da";
+          context.fillStyle = selected ? "#fff" : (onFinding ? "#ffd0d0" : "#e8e4da");
           context.font = "11px ui-sans-serif, system-ui, sans-serif";
           context.fillText(node.name, point.x + radius + 4, point.y + 3);
         }
@@ -1497,10 +1844,14 @@
       const times = seen === 1 ? "1 time" : `${seen} times`;
       const consequences = consequenceSummary(node);
       const detail = consequences || (links.length === 1 ? "1 link" : `${links.length} links`);
-      tip.textContent = `${node.name}\n${service}${LAYER_LABEL[node.layer] || node.layer} · ${node.kind} · seen ${times}\n${detail}`;
+      const pace = state.latencyMedians.get(node.nodeKey);
+      const runs = state.latencyGroups.get(node.nodeKey);
+      const timing = pace == null || !runs ? "" : `\nmedian ${formatDuration(pace)} · ${runs.length === 1 ? "1 run" : `${runs.length} runs`}`;
+      tip.textContent = `${node.name}\n${service}${LAYER_LABEL[node.layer] || node.layer} · ${node.kind} · seen ${times}\n${detail}${timing}`;
     }
 
     function fit(nodes) {
+      state.followFocus = false;
       const targets = Array.isArray(nodes) ? nodes : visibleNodes();
       if (targets.length === 0) return;
       const xs = targets.map((node) => node.x);
@@ -1531,6 +1882,15 @@
         y: (Math.min(...ys) + Math.max(...ys)) / 2,
         k: Math.max(0.12, Math.min(1.8, Math.min(rect.width / width, rect.height / height))),
       };
+    }
+
+    function easeTowardFocus() {
+      if (state.drag) return;
+      const node = state.nodes.get(state.focus);
+      if (!node) return;
+      state.camera.x += (node.x - state.camera.x) * 0.2;
+      state.camera.y += (node.y - state.camera.y) * 0.2;
+      state.camera.k += (1.15 - state.camera.k) * 0.12;
     }
 
     function easeCamera() {
@@ -1759,6 +2119,7 @@
       const bar = event.target.closest("button[data-node]");
       if (!bar) return;
       state.focus = bar.dataset.node;
+      if (state.view === "latency") return;
       if (state.view === "sequence") {
         const model = sequenceGeometry();
         const index = model.rows.findIndex((row) => row.key === state.focus || row.from.nodeKey === state.focus);
@@ -1870,16 +2231,18 @@
     const HELP = {
       traces: "Each row is one story: a click or a job, and everything that shared its trace. Select a row to hold that story still. That turns Live off.",
       timeline: "The ruler is the whole recording, with the long pauses between clicks taken out so the clips sit together. The orange line is the playhead. Press restart to jump to the start, like skip back in a music player. Press the round play control to walk forward, and press it again to pause. Drag the ruler or the playhead triangle to an exact moment. Clips that have not happened yet stay hidden. This trace, Hide assets and the layer buttons can narrow the picture. Live parks the playhead at the end.",
-      view: "Graph draws each thing that ran as a dot. Sequence draws the same things in time order, with a column for each part of the stack. Both use the playhead, the findings and these filters. Switching does not clear them. Only the drawing on screen is painted.",
-      graph: "Each dot is something that ran. It starts small and grows each time that thing runs again, up to the playhead. Once the playhead has reached it, the dot stays while playback moves forward. A line means one event recorded that it happened inside another, or because of another. A click is the cause of the browser call that follows it. Hover that click to count what followed it. After a second press, the count splits into every time and some of the time. A request that carried another request's span id is the cause of that next hop. A rose line is duplicated work: the same request or query ran again, and its thickness follows the count. A dashed line was read from the application source, and it appears only when both ends have already run. Sharing a trace does not draw a line, so jobs and worker can be in the same story with nothing joining them. Drag the background to move around, scroll to zoom, and drag a dot to pin it. Hover a dot to see what it connects to. Names starts off. Sequence switches this panel to a sequence diagram of the same dots.",
-      names: "Shows the full name beside every dot, and the full name on every sequence message, including while a finding is open. It starts off. With it off, hovering a dot still names that dot and every dot joined to it. Sequence messages keep a short name either way.",
-      search: "Type part of a name to hide dots that do not match. Clear the box to show them again.",
+      "view-graph": "Each dot is something that ran. A line means one thing caused or contained another.",
+      "view-sequence": "Sequence draws the same things in time order, with a column for each part of the stack.",
+      "view-latency": "Each point is one finished run of a request or query. The line joins later runs of that same request, so a rise means it took longer. There is one line per request. The vertical axis covers those runs, in decades. Click a point to select that request in the graph and the sequence diagram.",
+      graph: "Each dot is something that ran. It starts small and grows each time that thing runs again, up to the playhead. Once the playhead has reached it, the dot stays while playback moves forward. A line means one event recorded that it happened inside another, or because of another. A click is the cause of the browser call that follows it. Hover that click to count what followed it. After a second press, the count splits into every time and some of the time. A request that carried another request's span id is the cause of that next hop. A line into a finished request or query takes its colour from that request's median duration, up to the playhead. Under 50 ms stays cool, a few hundred milliseconds turns warm, and around a second is hot. Thickness still follows the count. A rose line is duplicated work with no measured duration. A dashed line was read from the application source, and it appears only when both ends have already run. Sharing a trace does not draw a line, so jobs and worker can be in the same story with nothing joining them. Drag the background to move around, scroll to zoom, and drag a dot to pin it. Hover a dot to see what it connects to. Names starts off. Sequence and Latency switch this panel without clearing the filters.",
+      names: "Shows the full name beside every dot, the full name on every sequence message, and the name of every latency line, including while a finding is open. It starts off. With it off, hovering a dot still names that dot and every dot joined to it. Sequence messages keep a short name either way.",
+      search: "Type part of a name to hide dots that do not match, and their latency lines. Clear the box to show them again.",
       live: "Follows whatever just happened and recentres the picture. Choosing a trace in the list turns this off. Press it again to follow the newest story.",
       scope: "This trace shows only the story selected on the left, plus anything already joined to it by a line. All activity shows every story from this session. Press Fit if the extra dots sit outside the view. Hide assets is on by default, so many of those extra dots stay hidden.",
       layers: "Each button hides or shows dots from that part of the stack. They all start on.",
       assets: "Hides files Next.js loads just to draw the page: names containing /_next/ or webpack. It starts on. Turn it off to see those files, then press Fit.",
-      fit: "Recentres and zooms so everything currently shown fits on the screen. While a finding is open, Fit frames the highlighted dots or messages.",
-      findings: "Notes about what looks off in a story, such as a query that ran many times. Open one to paint its nodes red, emphasise duplicated links, select its trace and turn Live off. The playhead stays where it is. The sequence diagram paints those same messages red. Click the finding again to clear the highlight and show the whole graph at that same moment.",
+      fit: "Recentres and zooms so everything currently shown fits on the screen. While a finding is open, Fit frames the highlighted dots or messages. On the latency chart it shows the whole recording, or the highlighted requests while a finding is open.",
+      findings: "Notes about what looks off in a story, such as a query that ran many times. Open one to paint its nodes red, emphasise duplicated links, select its trace and turn Live off. The playhead stays where it is. The sequence diagram paints those same messages red. The latency chart keeps those requests bright and fades the rest. Click the finding again to clear the highlight and show the whole graph at that same moment.",
     };
 
     const help = document.getElementById("help");
@@ -1950,6 +2313,7 @@
 
     document.getElementById("view-graph").addEventListener("click", () => setView("graph"));
     document.getElementById("view-sequence").addEventListener("click", () => setView("sequence"));
+    document.getElementById("view-latency").addEventListener("click", () => setView("latency"));
 
     canvas.addEventListener("wheel", (event) => {
       event.preventDefault();
@@ -1964,6 +2328,7 @@
       const key = hit(event.offsetX, event.offsetY);
       state.drag = key || "pan";
       state.focus = key;
+      state.followFocus = Boolean(key);
       canvas.classList.add("dragging");
       canvas.setPointerCapture(event.pointerId);
     });
@@ -2055,12 +2420,31 @@
       state.sequenceSig = "";
     });
 
+    latencyCanvas.addEventListener("pointermove", (event) => {
+      if (state.view !== "latency") return;
+      const hovered = hitLatency(event.offsetX, event.offsetY);
+      state.hover = hovered;
+      showTip(state.nodes.get(hovered), event.clientX, event.clientY);
+    });
+
+    latencyCanvas.addEventListener("pointerleave", () => {
+      if (state.view !== "latency") return;
+      state.hover = "";
+      tip.style.display = "none";
+    });
+
+    latencyCanvas.addEventListener("pointerdown", (event) => {
+      if (state.view !== "latency") return;
+      state.focus = hitLatency(event.offsetX, event.offsetY);
+    });
+
     window.addEventListener("resize", () => {
       resize();
       fitCurrent();
     });
     resize();
     function frame() {
+      refreshLatency();
       if (state.view === "sequence") {
         if (state.playing && !state.drag) easeSequenceCamera();
         const signature = sequenceSignature();
@@ -2070,10 +2454,13 @@
         } else if (state.playing || state.drag) {
           applySequenceTransform();
         }
+      } else if (state.view === "latency") {
+        drawLatency();
       } else {
         stepPhysics();
         settleNewNodes();
         if (state.playing) easeCamera();
+        else if (state.followFocus) easeTowardFocus();
         draw();
       }
       requestAnimationFrame(frame);

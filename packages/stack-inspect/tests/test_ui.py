@@ -44,9 +44,19 @@ def test_page_draws_the_graph_and_traces_carry_layers(tmp_path: Path) -> None:
     assert 'id="timecode"' in page.text
     assert 'id="view-sequence"' in page.text
     assert 'id="sequence"' in page.text
+    assert 'id="view-latency"' in page.text
+    assert 'id="latency"' in page.text
     assert 'aria-pressed="false">Sequence' in page.text
+    assert 'aria-pressed="false">Latency' in page.text
+    assert "median duration" in page.text
+    assert 'data-help="view-graph"' in page.text
+    assert 'data-help="view-sequence"' in page.text
+    assert 'data-help="view-latency"' in page.text
+    assert "one line per request" in page.text
+    assert "later runs of that same request" in page.text
+    assert "select that request" in page.text
+    assert "in decades" in page.text
     assert "Sequence draws the same things in time order" in page.text
-    assert "Only the drawing on screen is painted" in page.text
     assert 'id="names"' in page.text
     assert 'aria-pressed="false">Names' in page.text
     assert "hovering a dot still names" in page.text
