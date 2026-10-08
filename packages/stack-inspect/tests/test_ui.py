@@ -55,6 +55,7 @@ def test_page_draws_the_graph_and_traces_carry_layers(tmp_path: Path) -> None:
     assert "Drag the ruler or the playhead triangle" in page.text
     assert "jump to the start" in page.text
     assert "paint its nodes red" in page.text
+    assert "#4a2424" in page.text
     assert "whole graph at that same moment" in page.text
     assert "including while a finding is open" in page.text
     assert 'data-help="live"' in page.text
