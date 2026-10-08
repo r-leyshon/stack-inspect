@@ -50,7 +50,7 @@ def test_page_draws_the_graph_and_traces_carry_layers(tmp_path: Path) -> None:
     assert 'id="names"' in page.text
     assert 'aria-pressed="false">Names' in page.text
     assert "hovering a dot still names" in page.text
-    assert "some of the time" in page.text
+    assert "grows each time" in page.text
     assert "1 consequence" in page.text
     assert "Drag the ruler or the playhead triangle" in page.text
     assert "jump to the start" in page.text
