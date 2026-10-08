@@ -25,7 +25,7 @@ The HTTP surface is already most of this façade:
 - `GET /v1/findings` — analysis findings with `code`, `title`, `traceId`, `detail`, `at` and `nodeKeys`.
 - `GET /v1/traces` — one summary per story, for the timeline.
 - `GET /v1/report` — Markdown by default, JSON when asked. Already a good LLM context blob.
-- `POST /v1/declared` — on-demand source scan for declared edges.
+- `POST /v1/declared` — returns the source snapshot. Named roots are already read at startup; this reads them again.
 
 MCP would wrap those with clearer schemas, so an agent does not have to guess query parameters. Anything that cannot speak MCP still gets the stable JSON and Markdown report. A thin `stack-inspect ask` style CLI, or an "attach context" button that copies a finding-scoped bundle, covers the rest. Do not bake one vendor's agent SDK in as the only path.
 

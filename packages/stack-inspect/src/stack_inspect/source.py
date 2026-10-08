@@ -48,7 +48,7 @@ class DeclaredEdge:
 
 @dataclass(frozen=True)
 class SourceSnapshot:
-    """The latest reading. Empty until someone asks."""
+    """The latest reading of the configured roots."""
 
     edges: tuple[DeclaredEdge, ...]
     digest: str
@@ -98,6 +98,7 @@ class DeclaredStore:
         """Remember ``roots``. Nothing is read until :meth:`read`."""
         self._roots = roots
         self._digest: str | None = None
+        self._stamp: tuple[tuple[str, int, int], ...] | None = None
         self._snapshot = SourceSnapshot(edges=(), digest="", note="", typescript="absent", refused=())
 
     def current(self) -> SourceSnapshot:
@@ -105,19 +106,31 @@ class DeclaredStore:
         return self._snapshot
 
     def clear(self) -> None:
-        """Drop the reading. The next request reads the roots again."""
+        """Drop the reading. The next :meth:`read` walks the roots again."""
         self._digest = None
+        self._stamp = None
         self._snapshot = SourceSnapshot(edges=(), digest="", note="", typescript="absent", refused=())
 
     def read(self) -> SourceSnapshot:
-        """Read the configured roots, or return the cached snapshot when nothing changed."""
+        """Read the configured roots, or return the cached snapshot when nothing changed.
+
+        With no roots, the working directory is not guessed. A file whose size and
+        modification time are unchanged is not read again.
+        """
         if not self._roots:
+            if self._digest == "":
+                return self._snapshot
             self._snapshot = SourceSnapshot(edges=(), digest="", note=_NO_ROOTS, typescript="absent", refused=())
             self._digest = ""
+            self._stamp = ()
             return self._snapshot
         accepted, refused = _partition(self._roots)
         files = _source_files(accepted)
+        stamp = _stamp(files)
+        if stamp == self._stamp and self._digest is not None:
+            return self._snapshot
         digest = _digest(files)
+        self._stamp = stamp
         if self._digest == digest:
             return self._snapshot
         self._snapshot = _snapshot(accepted, files, digest, refused)
@@ -205,6 +218,19 @@ def _inside(root: Path, path: Path) -> bool:
         return path.resolve().is_relative_to(root)
     except OSError:
         return False
+
+
+def _stamp(files: list[Path]) -> tuple[tuple[str, int, int], ...]:
+    """Return a cheap fingerprint of ``files`` from size and modification time."""
+    stamped: list[tuple[str, int, int]] = []
+    for path in files:
+        try:
+            stat = path.stat()
+        except OSError:
+            stamped.append((str(path), -1, -1))
+            continue
+        stamped.append((str(path), stat.st_size, stat.st_mtime_ns))
+    return tuple(stamped)
 
 
 def _digest(files: list[Path]) -> str:

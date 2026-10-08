@@ -68,13 +68,6 @@ When("I open the worker example and run a job", async ({ page }) => {
   await expect(page.getByText("The worker has the job.")).toBeVisible();
 });
 
-When("I read the source into the graph", async ({ page }) => {
-  await page.goto(collector);
-  const button = page.getByRole("button", { name: "Read source" });
-  await button.click();
-  await expect(button).toBeEnabled({ timeout: 20_000 });
-});
-
 Then(
   "the graph has a declared edge from {string} to a query",
   async ({}, origin: string) => {

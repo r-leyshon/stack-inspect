@@ -85,7 +85,7 @@ Edge kinds:
 
 `read` and `invalidated` exist from day one even though the execution graph doesn't produce them. See §8.
 
-A declared edge can also be read from source, and only when you ask. The collector scans directories named with `--root` and keeps that reading beside the event log. Reset clears the recording and the reading together. A declared edge is drawn only when both of its ends have already been observed, as a dashed line. The scan refuses a root that contains stack-inspect. It does not follow dynamic routes, SQL built by concatenation, or ordinary variable reads. See [ADR 0014](adr/0014-declared-edges-from-source.md).
+When the collector is started with `--root`, it reads those directories as it starts, again when the recording is reset, and again when a source file changes. The reading stays beside the event log. A declared edge is drawn only when both of its ends have already been observed, as a dashed line. With no roots, nothing is read and the working directory is not guessed. The scan refuses a root that contains stack-inspect. It does not follow dynamic routes, SQL built by concatenation, or ordinary variable reads. See [ADR 0014](adr/0014-declared-edges-from-source.md).
 
 ## 4. Linking events across layers
 

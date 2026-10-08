@@ -23,7 +23,7 @@ _LOOPBACK = frozenset({"127.0.0.1", "::1", "localhost"})
 
 
 def create_app(log: EventLog, roots: list[Path] | None = None) -> FastAPI:  # noqa: C901 # route registration is a flat list, not nested logic
-    """Return the collector application bound to ``log``. ``roots`` are read only when asked."""
+    """Return the collector application bound to ``log``. Named ``roots`` are read now."""
     app = FastAPI(title="stack-inspect", docs_url=None, redoc_url=None)
     source = DeclaredStore(list(roots or []))
 
@@ -55,9 +55,9 @@ def create_app(log: EventLog, roots: list[Path] | None = None) -> FastAPI:  # no
 
     @app.delete("/v1/events")
     def delete_events() -> dict[str, str]:
-        """Remove every stored event and the source reading. Test runs call this between scenarios."""
+        """Remove every stored event and read named roots again. Test runs call this between scenarios."""
         log.clear()
-        source.clear()
+        source.read()
         return {"status": "cleared"}
 
     @app.get("/v1/events")
@@ -83,6 +83,7 @@ def create_app(log: EventLog, roots: list[Path] | None = None) -> FastAPI:  # no
     @app.get("/v1/graph")
     def graph() -> dict[str, object]:
         """Return nodes and accumulated edges, including declared edges whose ends were observed."""
+        snapshot = source.read()
         projected = project(log.all_events())
         observed = [
             {
@@ -99,7 +100,7 @@ def create_app(log: EventLog, roots: list[Path] | None = None) -> FastAPI:  # no
         ]
         declared = [
             _declared_payload(edge) | {"count": 1, "firstSeen": 0, "lastSeen": 0}
-            for edge in _declared_edges(log.all_events(), source.current().edges)
+            for edge in _declared_edges(log.all_events(), snapshot.edges)
         ]
         return {
             "nodes": [
@@ -114,6 +115,7 @@ def create_app(log: EventLog, roots: list[Path] | None = None) -> FastAPI:  # no
                 for node in projected.nodes.values()
             ],
             "edges": observed + declared,
+            "sourceNote": snapshot.note,
         }
 
     @app.get("/v1/findings")
@@ -149,7 +151,7 @@ def create_app(log: EventLog, roots: list[Path] | None = None) -> FastAPI:  # no
             trace_id=trace or None,
             include_assets=assets == 1,
             include_events=events == 1,
-            declared=source.current().edges,
+            declared=source.read().edges,
         )
         if format == "json":
             return JSONResponse(
@@ -168,6 +170,7 @@ def create_app(log: EventLog, roots: list[Path] | None = None) -> FastAPI:  # no
         """Serve the timeline, dependency graph and findings."""
         return _UI_PATH.read_text(encoding="utf-8")
 
+    source.read()
     return app
 
 

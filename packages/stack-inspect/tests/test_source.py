@@ -95,7 +95,7 @@ def test_queue_handoff_joins_the_route_to_the_worker_query(tmp_path: Path) -> No
 
 
 def test_reference_worker_joins_the_job_to_its_queries() -> None:
-    """The example worker is the case the button is for."""
+    """The example worker is the case the scan is for."""
     snapshot = scan_roots([_repo() / "reference" / "worker"])
     assert snapshot.refused == ()
     targets = {edge.target for edge in snapshot.edges if edge.origin == "api:request:POST /jobs"}
@@ -163,19 +163,13 @@ def test_fetch_of_a_literal_path_declares_a_route(tmp_path: Path) -> None:
 
 
 def test_graph_draws_a_declared_edge_only_when_both_ends_were_observed(tmp_path: Path) -> None:
-    """Reset clears the run and the reading. A missing end stays off the graph."""
+    """Named roots are read at startup. Reset reads them again. A missing end stays off the graph."""
     app = tmp_path / "app"
     app.mkdir()
     (app / "direct.py").write_text(_ROUTE, encoding="utf-8")
     log = EventLog(tmp_path / "events.db")
     client = TestClient(create_app(log, roots=[app]), client=("127.0.0.1", 50000))
-    reading = client.post("/v1/declared")
-    assert reading.is_success
     target = f"db:query:{fingerprint_sql(_NOTES)}"
-    body = reading.json()
-    assert body["drawn"] == 0
-    assert body["edges"][0]["to"] == target
-    assert body["limits"]
     assert client.get("/v1/graph").json()["edges"] == []
 
     log.append(_event("request"))
@@ -193,21 +187,43 @@ def test_graph_draws_a_declared_edge_only_when_both_ends_were_observed(tmp_path:
     assert client.delete("/v1/events").is_success
     log.append(_event("request-again", nodeKey="api:request:GET /notes"))
     log.append(_event("query-again", nodeKey=target, kind="query", layer="db", name=_NOTES))
-    assert client.get("/v1/graph").json()["edges"] == []
-    again = client.post("/v1/declared")
-    assert again.json()["edges"][0]["to"] == target
     redrawn = client.get("/v1/graph").json()["edges"]
     assert redrawn[0]["source"] == "declared"
     assert redrawn[0]["to"] == target
 
+    reading = client.post("/v1/declared")
+    assert reading.is_success
+    assert reading.json()["edges"][0]["to"] == target
+    assert reading.json()["limits"]
 
-def test_page_offers_read_source(tmp_path: Path) -> None:
-    """The button is on the page and does not explain itself in a popover."""
+
+def test_a_changed_file_is_read_on_the_next_graph(tmp_path: Path) -> None:
+    """Editing a root after startup updates the dashed line without a separate request."""
+    app = tmp_path / "app"
+    app.mkdir()
+    target_file = app / "direct.py"
+    target_file.write_text(_DYNAMIC, encoding="utf-8")
+    log = EventLog(tmp_path / "events.db")
+    client = TestClient(create_app(log, roots=[app]), client=("127.0.0.1", 50000))
+    query = f"db:query:{fingerprint_sql(_NOTES)}"
+    log.append(_event("request"))
+    log.append(_event("query", nodeKey=query, kind="query", layer="db", name=_NOTES))
+    assert client.get("/v1/graph").json()["edges"] == []
+    target_file.write_text(_ROUTE, encoding="utf-8")
+    drawn = client.get("/v1/graph").json()["edges"]
+    assert drawn[0]["source"] == "declared"
+    assert drawn[0]["to"] == query
+
+
+def test_page_says_when_no_roots_are_configured(tmp_path: Path) -> None:
+    """The page no longer asks for a scan, and the graph explains a missing --root."""
     client = TestClient(create_app(EventLog(tmp_path / "events.db")), client=("127.0.0.1", 50000))
     page = client.get("/")
-    assert 'id="read-source"' in page.text
-    assert "Read source" in page.text
-    assert 'data-help="read-source"' not in page.text
+    assert 'id="read-source"' not in page.text
+    assert "Read source" not in page.text
+    assert "read from the application source" in page.text
+    note = client.get("/v1/graph").json()["sourceNote"]
+    assert note.startswith("No source roots")
 
 
 def _event(event_id: str, **overrides: object) -> GraphEvent:
