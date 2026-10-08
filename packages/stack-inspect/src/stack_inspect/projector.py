@@ -34,8 +34,10 @@ class GraphEdge:
     kind: str
     source: EdgeSource = "observed"
     count: int = 0
+    followed: int = 0
     first_seen: float = 0
     last_seen: float = 0
+    click_ids: set[str] = field(default_factory=set, compare=False, repr=False)
 
 
 @dataclass
@@ -146,7 +148,10 @@ def _edges_for_event(
         parent = spans.get(parent_id)
         if parent is not None:
             kind = "emitted" if span.kind == "stream-message" else "contained"
-            _add_edge(edge_index, parent.node_key, span.node_key, kind, event["ts"])
+            edge = _add_edge(edge_index, parent.node_key, span.node_key, kind, event["ts"])
+            if parent.kind == "interaction":
+                edge.click_ids.add(parent.event_id)
+                edge.followed = len(edge.click_ids)
     for cause_id in event.get("causeIds") or []:
         cause = spans.get(cause_id)
         if cause is not None:
@@ -194,11 +199,11 @@ def _add_edge(
     target: str,
     kind: str,
     seen_at: float,
-) -> None:
+) -> GraphEdge:
     key = (origin, target, kind)
     edge = edge_index.get(key)
     if edge is None:
-        edge_index[key] = GraphEdge(
+        edge = GraphEdge(
             origin=origin,
             target=target,
             kind=kind,
@@ -206,9 +211,11 @@ def _add_edge(
             first_seen=seen_at,
             last_seen=seen_at,
         )
-        return
+        edge_index[key] = edge
+        return edge
     edge.count += 1
     edge.last_seen = seen_at
+    return edge
 
 
 def _duplicate_group_key(span: Span) -> str | None:

@@ -1050,7 +1050,7 @@
 
     function sequenceSignature() {
       const nodes = visibleNodes().map((node) => node.nodeKey).join("\n");
-      const edges = visibleEdges().map((edge) => `${edge.from}>${edge.to}:${edge.kind}:${edge.count}:${edge.source}`).join("\n");
+      const edges = visibleEdges().map((edge) => `${edge.from}>${edge.to}:${edge.kind}:${edge.count}:${edge.followed || 0}:${edge.source}`).join("\n");
       const highlight = [...state.highlight].sort().join("\n");
       const layers = [...state.layers].sort().join("\n");
       return `${nodes}|${edges}|${highlight}|${layers}|${state.hover}|${state.focus}|${state.showNames}`;
@@ -1118,7 +1118,10 @@
         const ink = messageStyle(row, hot, flagged);
         const expanded = state.showNames || state.hover === row.to.nodeKey || state.highlight.has(row.to.nodeKey);
         const count = row.edge && row.edge.count > 1 ? ` ×${row.edge.count}` : "";
-        const label = escapeText(`${shortName(row.to.name, expanded)}${count}`);
+        const partial = row.edge && row.edge.followed && row.from.kind === "interaction" && row.from.count > 1 && row.edge.followed < row.from.count
+          ? ` ${row.edge.followed}/${row.from.count}`
+          : "";
+        const label = escapeText(`${shortName(row.to.name, expanded)}${count}${partial}`);
         const colour = ink.onFinding ? "#ff5c5c" : (LAYER_COLOR[row.to.layer] || "#ddd");
         const same = row.from.layer === row.to.layer;
         let shape = "";
@@ -1437,6 +1440,22 @@
       return found;
     }
 
+    function consequenceSummary(node) {
+      if (node.kind !== "interaction") return "";
+      const outgoing = visibleEdges().filter((edge) => edge.from === node.nodeKey && edge.followed);
+      if (outgoing.length === 0) return "";
+      if ((node.count || 0) < 2) {
+        return outgoing.length === 1 ? "1 consequence" : `${outgoing.length} consequences`;
+      }
+      const every = outgoing.filter((edge) => edge.followed >= node.count).length;
+      const some = outgoing.length - every;
+      const everyWord = every === 1 ? "1 every time" : `${every} every time`;
+      const someWord = some === 1 ? "1 some of the time" : `${some} some of the time`;
+      if (every === 0) return someWord;
+      if (some === 0) return everyWord;
+      return `${everyWord} · ${someWord}`;
+    }
+
     function showTip(node, clientX, clientY) {
       if (!node) {
         tip.style.display = "none";
@@ -1449,8 +1468,9 @@
       tip.style.top = `${clientY - host.top + 14}px`;
       const service = node.service ? `${node.service} · ` : "";
       const times = node.count === 1 ? "1 time" : `${node.count} times`;
-      const linkWord = links.length === 1 ? "1 link" : `${links.length} links`;
-      tip.textContent = `${node.name}\n${service}${LAYER_LABEL[node.layer] || node.layer} · ${node.kind} · seen ${times}\n${linkWord}`;
+      const consequences = consequenceSummary(node);
+      const detail = consequences || (links.length === 1 ? "1 link" : `${links.length} links`);
+      tip.textContent = `${node.name}\n${service}${LAYER_LABEL[node.layer] || node.layer} · ${node.kind} · seen ${times}\n${detail}`;
     }
 
     function fit(nodes) {
@@ -1846,7 +1866,7 @@
       traces: "Each row is one story: a click or a job, and everything that shared its trace. Select a row to hold that story still. That turns Live off.",
       timeline: "The ruler is the whole recording, with the long pauses between clicks taken out so the clips sit together. The orange line is the playhead. Press restart to jump to the start, like skip back in a music player. Press the round play control to walk forward, and press it again to pause. Drag the ruler or the playhead triangle to an exact moment. Clips that have not happened yet stay hidden. This trace, Hide assets and the layer buttons can narrow the picture. Live parks the playhead at the end.",
       view: "Graph draws each thing that ran as a dot. Sequence draws the same things in time order, with a column for each part of the stack. Both use the playhead, the findings and these filters. Switching does not clear them. Only the drawing on screen is painted.",
-      graph: "Each dot is something that ran. Once the playhead has reached it, the dot stays while playback moves forward. A line means one event recorded that it happened inside another, or because of another. A click is the cause of the browser call that follows it. A request that carried another request's span id is the cause of that next hop. A rose line is duplicated work: the same request or query ran again, and its thickness follows the count. A dashed line was read from the source when you pressed Read source, and it appears only when both ends have already run. Sharing a trace does not draw a line, so jobs and worker can be in the same story with nothing joining them. Drag the background to move around, scroll to zoom, and drag a dot to pin it. Hover a dot to see what it connects to. Names starts off. Sequence switches this panel to a sequence diagram of the same dots.",
+      graph: "Each dot is something that ran. Once the playhead has reached it, the dot stays while playback moves forward. A line means one event recorded that it happened inside another, or because of another. A click is the cause of the browser call that follows it. Hover that click to count what followed it. After a second press, the count splits into every time and some of the time. A request that carried another request's span id is the cause of that next hop. A rose line is duplicated work: the same request or query ran again, and its thickness follows the count. A dashed line was read from the source when you pressed Read source, and it appears only when both ends have already run. Sharing a trace does not draw a line, so jobs and worker can be in the same story with nothing joining them. Drag the background to move around, scroll to zoom, and drag a dot to pin it. Hover a dot to see what it connects to. Names starts off. Sequence switches this panel to a sequence diagram of the same dots.",
       names: "Shows the full name beside every dot, and the full name on every sequence message, including while a finding is open. It starts off. With it off, hovering a dot still names that dot and every dot joined to it. Sequence messages keep a short name either way.",
       search: "Type part of a name to hide dots that do not match. Clear the box to show them again.",
       live: "Follows whatever just happened and recentres the picture. Choosing a trace in the list turns this off. Press it again to follow the newest story.",

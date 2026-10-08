@@ -136,6 +136,59 @@ def test_invalidation_attribute_becomes_an_edge() -> None:
     assert graph.edges[0].target == "browser:render:ResultsPanel"
 
 
+def test_a_click_counts_distinct_presses_not_extra_fetches() -> None:
+    """Two presses that share one call count as two, and a double fetch inside one press still counts as one."""
+    dashboard = {
+        "nodeKey": "browser:request:/api/dashboard",
+        "kind": "request",
+        "layer": "browser",
+        "name": "GET /api/dashboard",
+    }
+    stream = {
+        "nodeKey": "browser:request:/api/stream",
+        "kind": "request",
+        "layer": "browser",
+        "name": "GET /api/stream",
+    }
+    events = [
+        _event(
+            id="click-1",
+            phase="instant",
+            kind="interaction",
+            layer="browser",
+            nodeKey="browser:interaction:Load dashboard",
+            name="Load dashboard",
+        ),
+        _event(id="fetch-1", parentId="click-1", ts=2, **dashboard),
+        _event(id="fetch-1b", parentId="click-1", ts=3, **dashboard),
+        _event(
+            id="click-2",
+            phase="instant",
+            kind="interaction",
+            layer="browser",
+            nodeKey="browser:interaction:Load dashboard",
+            name="Load dashboard",
+            ts=4,
+        ),
+        _event(id="fetch-2", parentId="click-2", ts=5, **dashboard),
+        _event(id="fetch-stream", parentId="click-2", ts=6, **stream),
+    ]
+    edges = {
+        edge.target: edge
+        for edge in project(events).edges
+        if edge.origin == "browser:interaction:Load dashboard" and edge.kind == "contained"
+    }
+    presses = sum(event["kind"] == "interaction" for event in events)
+    dashboard_fetches = sum(event["nodeKey"] == "browser:request:/api/dashboard" for event in events)
+    dashboard = edges["browser:request:/api/dashboard"]
+    stream_edge = edges["browser:request:/api/stream"]
+    assert dashboard.count == dashboard_fetches
+    assert dashboard.followed == presses
+    assert stream_edge.followed == sum(
+        event.get("parentId") == "click-2" and event["nodeKey"] == "browser:request:/api/stream" for event in events
+    )
+
+
 def test_edge_counts_accumulate() -> None:
     """The same relationship seen twice keeps a count of two."""
     events = [

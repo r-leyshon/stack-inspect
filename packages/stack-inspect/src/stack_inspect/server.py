@@ -91,6 +91,7 @@ def create_app(log: EventLog, roots: list[Path] | None = None) -> FastAPI:  # no
                 "kind": edge.kind,
                 "source": edge.source,
                 "count": edge.count,
+                "followed": edge.followed,
                 "firstSeen": edge.first_seen,
                 "lastSeen": edge.last_seen,
             }

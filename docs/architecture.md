@@ -61,7 +61,7 @@ The full model is in [ADR 0003](adr/0003-event-schema-and-graph-model.md). In su
 
 - **Events** are the raw record: something started, ended or happened at an instant. Adapters emit them, and they're never edited.
 - **Nodes** are stable identities that persist across interactions, such as "the `ResultsPanel` component", "`GET /api/results`" or "SQL fingerprint `a1b2c3`". Many events belong to one node.
-- **Edges** connect nodes and carry evidence: how many times they've been seen, when last seen, and whether they were observed, inferred or declared.
+- **Edges** connect nodes and carry evidence: how many times they've been seen, when last seen, and whether they were observed, inferred or declared. An edge that leaves a click also records `followed`: how many distinct presses of that control were followed by this consequence. A second fetch inside one press raises `count` and leaves `followed` unchanged.
 
 Node kinds:
 
