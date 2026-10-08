@@ -82,3 +82,9 @@ Carry "this depends on that" information across HTTP and streams, so a frontend 
 Link PostgreSQL writes to the cached reads of the same data. Possible mechanisms include parsing query fingerprints for the tables they touch, `LISTEN`/`NOTIFY`, or logical decoding.
 
 **Done when (the long-term goal):** for any render, request or query, stack-inspect can say which changed value caused it to run and what else that change invalidated.
+
+## Not yet scheduled
+
+### Agentic layer
+
+A local MCP server over the collector, so a coding agent can ask about findings, the graph and a playhead moment, and so Playwright journeys can feed those findings back into the agent. Ideation only: [agent layer](agent-layer.md).
