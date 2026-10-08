@@ -42,6 +42,11 @@ def test_page_draws_the_graph_and_traces_carry_layers(tmp_path: Path) -> None:
     assert "glyph-pause" in page.text
     assert 'id="ruler"' in page.text
     assert 'id="timecode"' in page.text
+    assert 'id="view-sequence"' in page.text
+    assert 'id="sequence"' in page.text
+    assert 'aria-pressed="false">Sequence' in page.text
+    assert "Sequence draws the same things in time order" in page.text
+    assert "Only the drawing on screen is painted" in page.text
     assert 'id="names"' in page.text
     assert 'aria-pressed="false">Names' in page.text
     assert "hovering a dot still names" in page.text

@@ -330,8 +330,15 @@
       right: 0.55rem;
       z-index: 3;
     }
-    canvas { width: 100%; flex: 1; min-height: 0; display: block; cursor: grab; }
-    canvas.dragging { cursor: grabbing; }
+    #stage { position: relative; flex: 1; min-height: 0; }
+    #graph, #sequence { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+    #graph { cursor: grab; }
+    #graph.dragging, #sequence.dragging { cursor: grabbing; }
+    #sequence { overflow: hidden; cursor: grab; touch-action: none; }
+    #sequence svg { width: 100%; height: 100%; display: block; }
+    #sequence text { font-family: ui-sans-serif, system-ui, sans-serif; }
+    #graph-wrap[data-view="graph"] #sequence { visibility: hidden; pointer-events: none; }
+    #graph-wrap[data-view="sequence"] #graph { visibility: hidden; pointer-events: none; }
     .graph-tools {
       display: flex;
       gap: 0.55rem 0.7rem;
@@ -398,6 +405,7 @@
     }
     #tip {
       position: absolute;
+      z-index: 4;
       display: none;
       max-width: 260px;
       background: #0e1116ee;
@@ -473,8 +481,15 @@
         <div id="playhead" hidden><span class="playhead-cap"></span></div>
       </div>
     </section>
-    <section id="graph-wrap" aria-label="Dependency graph">
+    <section id="graph-wrap" data-view="graph" aria-label="Dependency graph">
       <div class="graph-tools">
+        <span class="hint">
+          <span class="layer-group" role="group" aria-label="Diagram">
+            <button class="tool" type="button" id="view-graph" aria-pressed="true">Graph</button>
+            <button class="tool" type="button" id="view-sequence" aria-pressed="false">Sequence</button>
+          </span>
+          <button type="button" class="info" data-help="view" aria-label="About the diagram">i</button>
+        </span>
         <span class="hint">
           <input id="search" type="search" placeholder="Filter nodes" aria-label="Filter nodes" />
           <button type="button" class="info" data-help="search" aria-label="About the filter">i</button>
@@ -510,7 +525,10 @@
         </span>
       </div>
       <button type="button" class="info graph-help" data-help="graph" aria-label="About the graph">i</button>
-      <canvas id="graph"></canvas>
+      <div id="stage">
+        <canvas id="graph"></canvas>
+        <div id="sequence" aria-label="Sequence diagram"></div>
+      </div>
       <div id="tip"></div>
     </section>
   <div id="help" hidden></div>
@@ -532,6 +550,10 @@
     ];
     const LAYER_LABEL = Object.fromEntries(LAYERS.map(([id, label]) => [id, label]));
     const LAYER_COLOR = Object.fromEntries(LAYERS.map(([id, , color]) => [id, color]));
+    const SEQUENCE_ROW = 34;
+    const SEQUENCE_HEAD = 48;
+    const SEQUENCE_COL = 168;
+    const SEQUENCE_PAD = 36;
     const MEANING = {
       "repeated-query": "The same SQL ran several times inside one click. That is usually an N+1: the code asks for one row at a time instead of asking once.",
       "duplicate-request": "The same HTTP call was recorded more than once in this interaction. Sometimes the screen really fetched twice. Sometimes the browser, Next.js and the API each recorded the one call.",
@@ -571,6 +593,10 @@
       highWater: null,
       laidOut: new Set(),
       layers: new Set(["browser", "next", "api", "db"]),
+      view: "graph",
+      sequenceCamera: { x: 0, y: 0, k: 1 },
+      sequenceSig: "",
+      sequenceModel: null,
       camera: { x: 0, y: 0, k: 1 },
       hover: "",
       drag: null,
@@ -979,6 +1005,271 @@
       return timedEdges().filter((edge) => keys.has(edge.from) && keys.has(edge.to));
     }
 
+    function sequenceRows() {
+      const nodes = visibleNodes();
+      const byKey = new Map(nodes.map((node) => [node.nodeKey, node]));
+      const covered = new Set();
+      const rows = [];
+      const edges = [...visibleEdges()].sort((left, right) => (left.firstSeen || 0) - (right.firstSeen || 0));
+      for (const edge of edges) {
+        const from = byKey.get(edge.from);
+        const to = byKey.get(edge.to);
+        if (!from || !to) continue;
+        const origin = state.seenAt.get(edge.from) || 0;
+        const target = state.seenAt.get(edge.to) || 0;
+        const time = edge.source === "declared" || !edge.firstSeen ? Math.max(origin, target) : edge.firstSeen;
+        rows.push({ time, from, to, edge, key: edge.to });
+        covered.add(edge.from);
+        covered.add(edge.to);
+      }
+      for (const node of nodes) {
+        if (covered.has(node.nodeKey)) continue;
+        rows.push({ time: state.seenAt.get(node.nodeKey) || 0, from: node, to: node, edge: null, key: node.nodeKey });
+      }
+      rows.sort((left, right) => left.time - right.time || left.to.name.localeCompare(right.to.name));
+      return rows;
+    }
+
+    function sequenceGeometry() {
+      const layers = LAYERS.filter(([id]) => state.layers.has(id));
+      const colX = new Map(layers.map(([id], index) => [id, SEQUENCE_PAD + index * SEQUENCE_COL + SEQUENCE_COL / 2]));
+      const rows = sequenceRows().filter((row) => colX.has(row.from.layer) && colX.has(row.to.layer));
+      rows.forEach((row, index) => {
+        row.y = SEQUENCE_HEAD + index * SEQUENCE_ROW + SEQUENCE_ROW / 2;
+        row.x1 = colX.get(row.from.layer);
+        row.x2 = colX.get(row.to.layer);
+      });
+      return {
+        layers,
+        colX,
+        rows,
+        width: Math.max(SEQUENCE_PAD * 2, layers.length * SEQUENCE_COL + SEQUENCE_PAD),
+        height: SEQUENCE_HEAD + Math.max(rows.length, 1) * SEQUENCE_ROW + SEQUENCE_PAD,
+      };
+    }
+
+    function sequenceSignature() {
+      const nodes = visibleNodes().map((node) => node.nodeKey).join("\n");
+      const edges = visibleEdges().map((edge) => `${edge.from}>${edge.to}:${edge.kind}:${edge.count}:${edge.source}`).join("\n");
+      const highlight = [...state.highlight].sort().join("\n");
+      const layers = [...state.layers].sort().join("\n");
+      return `${nodes}|${edges}|${highlight}|${layers}|${state.hover}|${state.focus}|${state.showNames}`;
+    }
+
+    function sequenceNeighbours() {
+      const neighbours = new Set();
+      if (!state.hover) return neighbours;
+      neighbours.add(state.hover);
+      for (const edge of visibleEdges()) {
+        if (edge.from === state.hover) neighbours.add(edge.to);
+        if (edge.to === state.hover) neighbours.add(edge.from);
+      }
+      return neighbours;
+    }
+
+    function shortName(name, full) {
+      if (full || name.length <= 26) return name;
+      return `${name.slice(0, 25)}…`;
+    }
+
+    function messageStyle(row, hot, flagged) {
+      const edge = row.edge;
+      const onFinding = state.highlight.has(row.from.nodeKey) || state.highlight.has(row.to.nodeKey);
+      const duplicated = edge?.kind === "duplicated";
+      const declared = edge?.source === "declared";
+      const both = state.highlight.has(row.from.nodeKey) && state.highlight.has(row.to.nodeKey);
+      const emphasise = flagged && onFinding && Boolean(edge) && (duplicated || both);
+      const dim = (state.hover && !hot) || (flagged && !onFinding);
+      let stroke = "#c8c2b6";
+      let width = 1.25;
+      let dash = "";
+      if (emphasise) {
+        stroke = "#ff5c5c";
+        width = Math.min(4.5, 1.6 + Math.log2((edge.count || 1) + 1));
+      } else if (onFinding) {
+        stroke = "#ff5c5c";
+        width = 1.8;
+      } else if (declared) {
+        stroke = "#e0b15a";
+        dash = "5 4";
+      } else if (duplicated) {
+        stroke = "#ff8a8a";
+        width = Math.min(4, 1.2 + Math.log2((edge.count || 1) + 1));
+      }
+      if (state.focus === row.key && !onFinding) stroke = "#fffaf0";
+      return { stroke, width, dash, opacity: dim ? 0.18 : 1, onFinding };
+    }
+
+    function sequenceMarkup(model) {
+      const neighbours = sequenceNeighbours();
+      const flagged = state.highlight.size > 0;
+      const lifelines = model.layers.map(([id, label, colour]) => {
+        const x = model.colX.get(id);
+        const marked = [...state.highlight].some((key) => state.nodes.get(key)?.layer === id);
+        return `<line x1="${x}" y1="${SEQUENCE_HEAD - 8}" x2="${x}" y2="${model.height - 16}" stroke="${colour}" stroke-width="${marked ? 2 : 1}" opacity="${marked ? 0.9 : 0.45}" />` +
+          `<g><rect x="${x - 58}" y="12" width="116" height="24" rx="12" fill="#12161ce6" stroke="${colour}" />` +
+          `<text x="${x}" y="28" text-anchor="middle" fill="${colour}" font-size="12">${escapeText(label)}</text></g>`;
+      }).join("");
+      if (model.rows.length === 0) {
+        return `${lifelines}<text x="${model.width / 2}" y="${SEQUENCE_HEAD + 28}" text-anchor="middle" fill="#8d939c" font-size="13">Nothing at the playhead yet.</text>`;
+      }
+      const messages = model.rows.map((row) => {
+        const hot = !state.hover || neighbours.has(row.from.nodeKey) || neighbours.has(row.to.nodeKey);
+        const ink = messageStyle(row, hot, flagged);
+        const expanded = state.showNames || state.hover === row.to.nodeKey || state.highlight.has(row.to.nodeKey);
+        const count = row.edge && row.edge.count > 1 ? ` ×${row.edge.count}` : "";
+        const label = escapeText(`${shortName(row.to.name, expanded)}${count}`);
+        const colour = ink.onFinding ? "#ff5c5c" : (LAYER_COLOR[row.to.layer] || "#ddd");
+        const same = row.from.layer === row.to.layer;
+        let shape = "";
+        if (!row.edge) {
+          const fill = state.focus === row.key || ink.onFinding ? ink.stroke : colour;
+          shape = `<rect x="${row.x1 - 5}" y="${row.y - 7}" width="10" height="14" rx="3" fill="${fill}" />` +
+            `<text x="${row.x1}" y="${row.y - 12}" text-anchor="middle" fill="${ink.onFinding ? "#ffd0d0" : "#e8e4da"}" font-size="11">${label}</text>`;
+        } else if (same) {
+          const reach = 22;
+          shape = `<path d="M ${row.x1} ${row.y - 6} H ${row.x1 + reach} V ${row.y + 6} H ${row.x1}" fill="none" stroke="${ink.stroke}" stroke-width="${ink.width}" stroke-dasharray="${ink.dash}" />` +
+            `<polygon points="${row.x1},${row.y + 6} ${row.x1 + 7},${row.y + 2.5} ${row.x1 + 7},${row.y + 9.5}" fill="${ink.stroke}" />` +
+            `<text x="${row.x1}" y="${row.y - 12}" text-anchor="middle" fill="${ink.onFinding ? "#ffd0d0" : "#e8e4da"}" font-size="11">${label}</text>`;
+        } else {
+          const direction = row.x2 >= row.x1 ? 1 : -1;
+          const end = row.x2 - direction * 8;
+          const mid = (row.x1 + end) / 2;
+          shape = `<circle cx="${row.x1}" cy="${row.y}" r="3.2" fill="${ink.onFinding ? "#ff5c5c" : (LAYER_COLOR[row.from.layer] || "#ddd")}" />` +
+            `<path d="M ${row.x1} ${row.y} H ${end}" fill="none" stroke="${ink.stroke}" stroke-width="${ink.width}" stroke-dasharray="${ink.dash}" />` +
+            `<polygon points="${row.x2},${row.y} ${row.x2 - direction * 8},${row.y - 3.6} ${row.x2 - direction * 8},${row.y + 3.6}" fill="${ink.stroke}" />` +
+            `<text x="${mid}" y="${row.y - 6}" text-anchor="middle" fill="${ink.onFinding ? "#ffd0d0" : "#e8e4da"}" font-size="11">${label}</text>`;
+        }
+        return `<g opacity="${ink.opacity}">${shape}</g>`;
+      }).join("");
+      return lifelines + messages;
+    }
+
+    function applySequenceTransform() {
+      const world = document.getElementById("sequence-world");
+      const host = document.getElementById("sequence");
+      if (!world || !world.ownerSVGElement) return;
+      const rect = host.getBoundingClientRect();
+      world.ownerSVGElement.setAttribute("viewBox", `0 0 ${Math.max(rect.width, 1)} ${Math.max(rect.height, 1)}`);
+      const { x, y, k } = state.sequenceCamera;
+      world.setAttribute("transform", `translate(${rect.width / 2 - x * k} ${rect.height / 2 - y * k}) scale(${k})`);
+    }
+
+    function renderSequence() {
+      const host = document.getElementById("sequence");
+      const model = sequenceGeometry();
+      state.sequenceModel = model;
+      host.innerHTML = `<svg viewBox="0 0 ${Math.max(host.clientWidth, 1)} ${Math.max(host.clientHeight, 1)}" aria-hidden="true"><g id="sequence-world">${sequenceMarkup(model)}</g></svg>`;
+      applySequenceTransform();
+    }
+
+    function sequenceWorld(event) {
+      const rect = document.getElementById("sequence").getBoundingClientRect();
+      const { x, y, k } = state.sequenceCamera;
+      return {
+        x: (event.clientX - rect.left - rect.width / 2) / k + x,
+        y: (event.clientY - rect.top - rect.height / 2) / k + y,
+      };
+    }
+
+    function hitSequence(event) {
+      const model = state.sequenceModel;
+      if (!model) return "";
+      const world = sequenceWorld(event);
+      let found = "";
+      let best = SEQUENCE_ROW / 2;
+      for (const row of model.rows) {
+        const distance = Math.abs(world.y - row.y);
+        if (distance > best) continue;
+        const left = Math.min(row.x1, row.x2) - 12;
+        const right = Math.max(row.x1, row.x2, row.x1 + 36) + 120;
+        if (world.x < left || world.x > right) continue;
+        best = distance;
+        found = row.key;
+      }
+      return found;
+    }
+
+    function sequenceScale(rect, width) {
+      return Math.max(0.8, Math.min(1.15, rect.width / (width + 36)));
+    }
+
+    function frameSequence(model, first, last) {
+      const rect = document.getElementById("sequence").getBoundingClientRect();
+      if (rect.width < 2 || rect.height < 2) return;
+      const width = Math.max(64, model.width);
+      const k = sequenceScale(rect, width);
+      const viewHeight = rect.height / k;
+      const top = first == null ? 0 : Math.max(0, SEQUENCE_HEAD + first * SEQUENCE_ROW - 12);
+      const bottom = last == null ? model.height : SEQUENCE_HEAD + (last + 1) * SEQUENCE_ROW + 16;
+      const height = Math.max(SEQUENCE_ROW, bottom - top);
+      state.sequenceCamera.k = k;
+      state.sequenceCamera.x = width / 2;
+      state.sequenceCamera.y = height <= viewHeight ? top + height / 2 : top + viewHeight / 2;
+      applySequenceTransform();
+    }
+
+    function fitSequence() {
+      const model = state.sequenceModel || sequenceGeometry();
+      frameSequence(model, null, null);
+    }
+
+    function fitSequenceHighlight() {
+      const model = sequenceGeometry();
+      state.sequenceModel = model;
+      const indexes = [];
+      model.rows.forEach((row, index) => {
+        if (state.highlight.has(row.from.nodeKey) || state.highlight.has(row.to.nodeKey)) indexes.push(index);
+      });
+      if (indexes.length === 0) {
+        frameSequence(model, null, null);
+        return;
+      }
+      frameSequence(model, Math.min(...indexes), Math.max(...indexes));
+    }
+
+    function easeSequenceCamera() {
+      const model = state.sequenceModel || sequenceGeometry();
+      const rect = document.getElementById("sequence").getBoundingClientRect();
+      if (rect.width < 2 || rect.height < 2) return;
+      const width = Math.max(64, model.width);
+      const k = sequenceScale(rect, width);
+      const viewHeight = rect.height / k;
+      const lastY = model.rows.length ? model.rows[model.rows.length - 1].y + SEQUENCE_ROW : model.height / 2;
+      const targetY = Math.max(viewHeight / 2, lastY - viewHeight / 2 + SEQUENCE_ROW);
+      state.sequenceCamera.x += (width / 2 - state.sequenceCamera.x) * 0.12;
+      state.sequenceCamera.y += (targetY - state.sequenceCamera.y) * 0.12;
+      state.sequenceCamera.k += (k - state.sequenceCamera.k) * 0.12;
+    }
+
+    function fitCurrent() {
+      if (state.view === "sequence") fitSequence();
+      else fit();
+    }
+
+    function fitCurrentHighlight() {
+      if (state.view === "sequence") fitSequenceHighlight();
+      else fitHighlight();
+    }
+
+    function setView(view) {
+      state.view = view;
+      state.drag = null;
+      const wrap = document.getElementById("graph-wrap");
+      wrap.dataset.view = view;
+      wrap.setAttribute("aria-label", view === "sequence" ? "Sequence diagram" : "Dependency graph");
+      document.getElementById("view-graph").setAttribute("aria-pressed", view === "graph" ? "true" : "false");
+      document.getElementById("view-sequence").setAttribute("aria-pressed", view === "sequence" ? "true" : "false");
+      if (view === "graph") {
+        resize();
+        draw();
+        return;
+      }
+      state.sequenceSig = sequenceSignature();
+      renderSequence();
+      if (!state.drag) fitSequence();
+    }
+
     function stepPhysics() {
       const nodes = visibleNodes();
       const edges = visibleEdges();
@@ -1146,15 +1437,16 @@
       return found;
     }
 
-    function showTip(node, x, y) {
+    function showTip(node, clientX, clientY) {
       if (!node) {
         tip.style.display = "none";
         return;
       }
       const links = visibleEdges().filter((edge) => edge.from === node.nodeKey || edge.to === node.nodeKey);
+      const host = document.getElementById("graph-wrap").getBoundingClientRect();
       tip.style.display = "block";
-      tip.style.left = `${x + 12}px`;
-      tip.style.top = `${y + 12}px`;
+      tip.style.left = `${clientX - host.left + 14}px`;
+      tip.style.top = `${clientY - host.top + 14}px`;
       const service = node.service ? `${node.service} · ` : "";
       const times = node.count === 1 ? "1 time" : `${node.count} times`;
       const linkWord = links.length === 1 ? "1 link" : `${links.length} links`;
@@ -1245,7 +1537,7 @@
       const visibleBefore = new Set(visibleNodes().map((node) => node.nodeKey));
       syncGraph(graph);
       const grew = visibleNodes().some((node) => !visibleBefore.has(node.nodeKey));
-      if ((grew || state.selected !== selectedBefore) && !state.drag && !state.playing) requestAnimationFrame(fit);
+      if ((grew || state.selected !== selectedBefore) && !state.drag && !state.playing) requestAnimationFrame(fitCurrent);
       const nodes = visibleNodes().length;
       const edges = visibleEdges().length;
       if (!state.reading) {
@@ -1294,7 +1586,7 @@
       state.highWater = null;
       paintPlayback();
       placePlayhead();
-      if (!state.drag) fit();
+      if (!state.drag) fitCurrent();
     }
 
     function paintPlayback() {
@@ -1323,7 +1615,7 @@
       if (t >= 1) {
         stopPlayback(true);
         paintPlayback();
-        if (!state.drag) requestAnimationFrame(fit);
+        if (!state.drag) requestAnimationFrame(fitCurrent);
         return;
       }
       if (now - (state.playDrawn || 0) > 70) {
@@ -1435,13 +1727,20 @@
       renderTraces();
       renderTimeline();
       renderFindings();
-      fit();
+      fitCurrent();
     });
 
     document.getElementById("tracks").addEventListener("click", (event) => {
       const bar = event.target.closest("button[data-node]");
       if (!bar) return;
       state.focus = bar.dataset.node;
+      if (state.view === "sequence") {
+        const model = sequenceGeometry();
+        const index = model.rows.findIndex((row) => row.key === state.focus || row.from.nodeKey === state.focus);
+        state.sequenceSig = "";
+        if (index >= 0) frameSequence(model, index, index);
+        return;
+      }
       const node = state.nodes.get(state.focus);
       if (node) {
         state.camera.x = node.x;
@@ -1471,8 +1770,8 @@
       }
       paintPlayback();
       placePlayhead();
-      if (state.highlight.size > 0) fitHighlight();
-      else fit();
+      if (state.highlight.size > 0) fitCurrentHighlight();
+      else fitCurrent();
     });
 
     document.getElementById("search").addEventListener("input", (event) => {
@@ -1546,15 +1845,16 @@
     const HELP = {
       traces: "Each row is one story: a click or a job, and everything that shared its trace. Select a row to hold that story still. That turns Live off.",
       timeline: "The ruler is the whole recording, with the long pauses between clicks taken out so the clips sit together. The orange line is the playhead. Press restart to jump to the start, like skip back in a music player. Press the round play control to walk forward, and press it again to pause. Drag the ruler or the playhead triangle to an exact moment. Clips that have not happened yet stay hidden. This trace, Hide assets and the layer buttons can narrow the picture. Live parks the playhead at the end.",
-      graph: "Each dot is something that ran. Once the playhead has reached it, the dot stays while playback moves forward. A line means one event recorded that it happened inside another, or because of another. A rose line is duplicated work: the same request or query ran again, and its thickness follows the count. A dashed line was read from the source when you pressed Read source, and it appears only when both ends have already run. Sharing a trace does not draw a line, so jobs and worker can be in the same story with nothing joining them. Drag the background to move around, scroll to zoom, and drag a dot to pin it. Hover a dot to see what it connects to. Names starts off.",
-      names: "Shows the name beside every dot, including while a finding is open. It starts off. With it off, hovering a dot still names that dot and every dot joined to it.",
+      view: "Graph draws each thing that ran as a dot. Sequence draws the same things in time order, with a column for each part of the stack. Both use the playhead, the findings and these filters. Switching does not clear them. Only the drawing on screen is painted.",
+      graph: "Each dot is something that ran. Once the playhead has reached it, the dot stays while playback moves forward. A line means one event recorded that it happened inside another, or because of another. A rose line is duplicated work: the same request or query ran again, and its thickness follows the count. A dashed line was read from the source when you pressed Read source, and it appears only when both ends have already run. Sharing a trace does not draw a line, so jobs and worker can be in the same story with nothing joining them. Drag the background to move around, scroll to zoom, and drag a dot to pin it. Hover a dot to see what it connects to. Names starts off. Sequence switches this panel to a sequence diagram of the same dots.",
+      names: "Shows the full name beside every dot, and the full name on every sequence message, including while a finding is open. It starts off. With it off, hovering a dot still names that dot and every dot joined to it. Sequence messages keep a short name either way.",
       search: "Type part of a name to hide dots that do not match. Clear the box to show them again.",
       live: "Follows whatever just happened and recentres the picture. Choosing a trace in the list turns this off. Press it again to follow the newest story.",
       scope: "This trace shows only the story selected on the left, plus anything already joined to it by a line. All activity shows every story from this session. Press Fit if the extra dots sit outside the view. Hide assets is on by default, so many of those extra dots stay hidden.",
       layers: "Each button hides or shows dots from that part of the stack. They all start on.",
       assets: "Hides files Next.js loads just to draw the page: names containing /_next/ or webpack. It starts on. Turn it off to see those files, then press Fit.",
-      fit: "Recentres and zooms so every dot currently shown fits on the screen. While a finding is open, Fit frames the highlighted dots.",
-      findings: "Notes about what looks off in a story, such as a query that ran many times. Open one to paint its nodes red, emphasise duplicated links, select its trace and turn Live off. The playhead stays where it is. Click the finding again to clear the highlight and show the whole graph at that same moment.",
+      fit: "Recentres and zooms so everything currently shown fits on the screen. While a finding is open, Fit frames the highlighted dots or messages.",
+      findings: "Notes about what looks off in a story, such as a query that ran many times. Open one to paint its nodes red, emphasise duplicated links, select its trace and turn Live off. The playhead stays where it is. The sequence diagram paints those same messages red. Click the finding again to clear the highlight and show the whole graph at that same moment.",
     };
 
     const help = document.getElementById("help");
@@ -1596,7 +1896,7 @@
       state.scope = state.scope === "trace" ? "all" : "trace";
       event.target.setAttribute("aria-pressed", state.scope === "trace" ? "true" : "false");
       event.target.textContent = state.scope === "trace" ? "This trace" : "All activity";
-      fit();
+      fitCurrent();
     });
 
     document.getElementById("assets").addEventListener("click", (event) => {
@@ -1619,9 +1919,12 @@
     }
 
     document.getElementById("fit").addEventListener("click", () => {
-      if (state.highlight.size > 0) fitHighlight();
-      else fit();
+      if (state.highlight.size > 0) fitCurrentHighlight();
+      else fitCurrent();
     });
+
+    document.getElementById("view-graph").addEventListener("click", () => setView("graph"));
+    document.getElementById("view-sequence").addEventListener("click", () => setView("sequence"));
 
     canvas.addEventListener("wheel", (event) => {
       event.preventDefault();
@@ -1643,7 +1946,7 @@
     canvas.addEventListener("pointermove", (event) => {
       if (!state.drag) {
         state.hover = hit(event.offsetX, event.offsetY);
-        showTip(state.nodes.get(state.hover), event.offsetX, event.offsetY);
+        showTip(state.nodes.get(state.hover), event.clientX, event.clientY);
         return;
       }
       if (state.drag === "pan") {
@@ -1672,16 +1975,82 @@
       }
     });
 
+    const sequence = document.getElementById("sequence");
+
+    sequence.addEventListener("wheel", (event) => {
+      if (state.view !== "sequence") return;
+      event.preventDefault();
+      const before = sequenceWorld(event);
+      const rect = sequence.getBoundingClientRect();
+      state.sequenceCamera.k = Math.max(0.35, Math.min(2.4, state.sequenceCamera.k * (event.deltaY < 0 ? 1.08 : 0.92)));
+      state.sequenceCamera.x = before.x - (event.clientX - rect.left - rect.width / 2) / state.sequenceCamera.k;
+      state.sequenceCamera.y = before.y - (event.clientY - rect.top - rect.height / 2) / state.sequenceCamera.k;
+      applySequenceTransform();
+    }, { passive: false });
+
+    sequence.addEventListener("pointerdown", (event) => {
+      if (state.view !== "sequence") return;
+      state.focus = hitSequence(event);
+      state.drag = "pan";
+      state.hover = "";
+      tip.style.display = "none";
+      state.sequencePan = { x: event.clientX, y: event.clientY };
+      sequence.classList.add("dragging");
+      sequence.setPointerCapture(event.pointerId);
+      state.sequenceSig = "";
+    });
+
+    sequence.addEventListener("pointermove", (event) => {
+      if (state.view !== "sequence") return;
+      if (state.drag === "pan") {
+        const scale = state.sequenceCamera.k || 1;
+        state.sequenceCamera.x -= (event.clientX - state.sequencePan.x) / scale;
+        state.sequenceCamera.y -= (event.clientY - state.sequencePan.y) / scale;
+        state.sequencePan = { x: event.clientX, y: event.clientY };
+        applySequenceTransform();
+        return;
+      }
+      const hovered = hitSequence(event);
+      if (hovered !== state.hover) {
+        state.hover = hovered;
+        state.sequenceSig = "";
+      }
+      showTip(state.nodes.get(state.hover), event.clientX, event.clientY);
+    });
+
+    sequence.addEventListener("pointerup", () => {
+      state.drag = null;
+      sequence.classList.remove("dragging");
+    });
+
+    sequence.addEventListener("pointerleave", () => {
+      if (state.drag === "pan") return;
+      state.hover = "";
+      tip.style.display = "none";
+      state.sequenceSig = "";
+    });
+
     window.addEventListener("resize", () => {
       resize();
-      fit();
+      fitCurrent();
     });
     resize();
     function frame() {
-      stepPhysics();
-      settleNewNodes();
-      if (state.playing) easeCamera();
-      draw();
+      if (state.view === "sequence") {
+        if (state.playing && !state.drag) easeSequenceCamera();
+        const signature = sequenceSignature();
+        if (signature !== state.sequenceSig) {
+          state.sequenceSig = signature;
+          renderSequence();
+        } else if (state.playing || state.drag) {
+          applySequenceTransform();
+        }
+      } else {
+        stepPhysics();
+        settleNewNodes();
+        if (state.playing) easeCamera();
+        draw();
+      }
       requestAnimationFrame(frame);
     }
     frame();
