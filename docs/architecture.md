@@ -91,6 +91,8 @@ A declared edge can also be read from source, and only when you ask. The collect
 
 Within a process, adapters use the runtime's own context mechanism: `AsyncLocalStorage` in Node and `contextvars` in Python. Across HTTP, they use the W3C `traceparent` header. See [ADR 0005](adr/0005-cross-layer-correlation.md).
 
+The span id in that header is also a cause. The hop that sends it records `spanId` on its event, and the hop that receives it records `parentSpanId`. The projector draws a `caused` edge between those two nodes. See [ADR 0015](adr/0015-span-id-is-a-cause.md). A click's event id is the `parentId` of the browser request, stream or storage call that follows it, until the next click. A React render names the state update that changed in the same commit, or the nearest ancestor state update when its own state did not change. That is a cause, not a record of which value the component read. See [the React read spike](spikes/0001-react-reads.md).
+
 ```text
 Browser ──traceparent──▶ Next.js ──traceparent──▶ FastAPI ──sqlcommenter──▶ PostgreSQL
 ```

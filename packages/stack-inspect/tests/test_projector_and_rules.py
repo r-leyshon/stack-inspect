@@ -28,6 +28,75 @@ def _event(**overrides: object) -> GraphEvent:
     return base
 
 
+def test_cause_ids_become_a_caused_edge() -> None:
+    """A render that names the state update which preceded it draws a caused edge."""
+    events = [
+        _event(
+            id="state",
+            phase="instant",
+            kind="state-update",
+            layer="browser",
+            nodeKey="browser:state:Fanout",
+            name="Fanout",
+        ),
+        _event(
+            id="render",
+            phase="instant",
+            kind="render",
+            layer="browser",
+            nodeKey="browser:render:FanChild",
+            name="FanChild",
+            causeIds=["state"],
+            ts=2,
+        ),
+    ]
+    graph = project(events)
+    assert any(
+        edge.origin == "browser:state:Fanout" and edge.target == "browser:render:FanChild" and edge.kind == "caused"
+        for edge in graph.edges
+    )
+
+
+def test_sent_span_id_causes_the_next_hop() -> None:
+    """The span id a caller sent becomes a caused edge when the next hop records it."""
+    events = [
+        _event(
+            id="browser",
+            nodeKey="browser:request:/api/items",
+            layer="browser",
+            name="GET /api/items",
+            attributes={"spanId": "abc123abc123abcd"},
+        ),
+        _event(
+            id="api",
+            nodeKey="api:request:GET /api/items",
+            name="GET /api/items",
+            ts=2,
+            attributes={"parentSpanId": "abc123abc123abcd", "spanId": "ffffffffffffffff"},
+        ),
+        _event(
+            id="api-end",
+            phase="end",
+            parentId="api",
+            ts=3,
+            attributes={"parentSpanId": "abc123abc123abcd"},
+        ),
+    ]
+    caused = [edge for edge in project(events).edges if edge.kind == "caused"]
+    assert len(caused) == 1
+    assert caused[0].origin == "browser:request:/api/items"
+    assert caused[0].target == "api:request:GET /api/items"
+    assert caused[0].count == 1
+
+
+def test_a_hop_does_not_cause_itself() -> None:
+    """A request's own span id is not a cause of that same request."""
+    events = [
+        _event(attributes={"spanId": "abc123abc123abcd", "parentSpanId": "abc123abc123abcd"}),
+    ]
+    assert [edge for edge in project(events).edges if edge.kind == "caused"] == []
+
+
 def test_parent_becomes_a_contained_edge() -> None:
     """A child event produces a contained edge from its parent's node."""
     events = [

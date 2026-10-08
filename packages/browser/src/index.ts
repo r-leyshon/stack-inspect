@@ -118,21 +118,24 @@ export function activeTrace(): ActiveTrace | null {
 
 function startInteraction(name: string): void {
   const now = Date.now();
+  const interactionId = newEventId();
   if (pinned || !active || now - active.started > TRACE_WINDOW_MS) {
     pinned = false;
     active = {
       traceId: newTraceId(),
       spanId: newSpanId(),
-      interactionId: newEventId(),
+      interactionId,
       started: now,
     };
     (
       window as Window & { __stackInspectTraceId?: string }
     ).__stackInspectTraceId = active.traceId;
+  } else {
+    active.interactionId = interactionId;
   }
   emit(
     browserEvent({
-      id: newEventId(),
+      id: interactionId,
       name,
       kind: "interaction",
       phase: "instant",
@@ -152,23 +155,27 @@ function patchFetch(): void {
     const headers = new Headers(
       init?.headers ?? (input instanceof Request ? input.headers : undefined),
     );
-    if (trace && !headers.has("traceparent")) {
-      headers.set("traceparent", formatTraceparent(trace.traceId, newSpanId()));
+    const spanId = newSpanId();
+    const sentSpan = Boolean(trace) && !headers.has("traceparent");
+    if (sentSpan && trace) {
+      headers.set("traceparent", formatTraceparent(trace.traceId, spanId));
     }
     const id = newEventId();
     const path = pathOf(url);
+    const method = (init?.method ?? "GET").toUpperCase();
     emit(
       browserEvent({
         id,
-        name: `GET ${path}`,
+        name: `${method} ${path}`,
         kind: "request",
         phase: "start",
         nodeKey: `browser:request:${path}`,
         parentId: trace?.interactionId,
         attributes: {
-          method: (init?.method ?? "GET").toUpperCase(),
+          method,
           path,
           url,
+          ...(sentSpan ? { spanId } : {}),
         },
       }),
     );

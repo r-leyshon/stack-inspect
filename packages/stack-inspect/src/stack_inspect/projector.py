@@ -78,6 +78,7 @@ def project(events: list[GraphEvent]) -> ProjectedGraph:
             continue
         _edges_for_event(edge_index, spans, event, span)
 
+    _link_span_causes(edge_index, events)
     _link_duplicates(edge_index, spans, spans_by_trace)
     return ProjectedGraph(nodes=nodes, edges=list(edge_index.values()), spans_by_trace=spans_by_trace)
 
@@ -156,6 +157,35 @@ def _edges_for_event(
     reads = span.attributes.get("reads")
     if isinstance(reads, str):
         _add_edge(edge_index, span.node_key, reads, "read", event["ts"])
+
+
+def _link_span_causes(
+    edge_index: dict[tuple[str, str, str], GraphEdge],
+    events: list[GraphEvent],
+) -> None:
+    """Draw a caused edge where one hop recorded the span id the previous hop sent."""
+    sent: dict[tuple[str, str], tuple[str, float]] = {}
+    for event in events:
+        if event["phase"] == "end":
+            continue
+        span_id = _attribute(event, "spanId")
+        if span_id:
+            sent[(event["traceId"], span_id)] = (event["nodeKey"], event["ts"])
+    for event in events:
+        if event["phase"] == "end":
+            continue
+        parent_span = _attribute(event, "parentSpanId")
+        if not parent_span:
+            continue
+        origin = sent.get((event["traceId"], parent_span))
+        if origin is None or origin[0] == event["nodeKey"]:
+            continue
+        _add_edge(edge_index, origin[0], event["nodeKey"], "caused", min(origin[1], event["ts"]))
+
+
+def _attribute(event: GraphEvent, name: str) -> str:
+    raw = (event.get("attributes") or {}).get(name)
+    return raw if isinstance(raw, str) else ""
 
 
 def _add_edge(

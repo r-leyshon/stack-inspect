@@ -50,10 +50,11 @@ export const devtoolsHookSource = `
     }
     return false;
   }
-  function walk(fiber, found) {
+  function walk(fiber, found, ancestorState) {
     if (!fiber) return;
     var type = fiber.type;
     var name = type && (type.displayName || type.name);
+    var nextAncestor = ancestorState;
     if (typeof type === "function" && name && fiber.alternate) {
       var props = propsChanged(fiber);
       var state = stateChanged(fiber);
@@ -62,10 +63,12 @@ export const devtoolsHookSource = `
         unchanged: !props && !state,
         stateChanged: state,
         effectRestarted: effectRestarted(fiber),
+        causeName: state ? name : ancestorState || "",
       });
+      if (state) nextAncestor = name;
     }
-    walk(fiber.child, found);
-    walk(fiber.sibling, found);
+    walk(fiber.child, found, nextAncestor);
+    walk(fiber.sibling, found, ancestorState);
   }
   globalThis.__siCommits = [];
   globalThis.__REACT_DEVTOOLS_GLOBAL_HOOK__ = {
@@ -81,7 +84,7 @@ export const devtoolsHookSource = `
       try {
         var found = [];
         var fiber = root && (root.current || root);
-        walk(fiber, found);
+        walk(fiber, found, "");
         globalThis.__siCommits.push(found);
       } catch (error) {
         console.error("stack-inspect react hook", error);

@@ -67,7 +67,7 @@ Adapters for TanStack Query and SWR that record cache keys, observers and invali
 
 ## Horizon 3: invalidation graph (long-term goal)
 
-These milestones are research. Each starts with a spike to test feasibility before committing to a design.
+These milestones are research. Each starts with a spike to test feasibility before committing to a design. The span a request sends is now a `caused` edge to the next hop ([ADR 0015](adr/0015-span-id-is-a-cause.md)). React can name the state update that preceded a render, and cannot yet name the values read during that render ([spike](spikes/0001-react-reads.md)).
 
 ### M9: React read tracking
 Record which state, context and props each component and effect actually read, and which of them had changed when it re-ran.

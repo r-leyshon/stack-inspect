@@ -89,12 +89,23 @@ export function observeQueryClient(
 }
 
 /** Record a commit-time render. */
-export function recordRender(name: string, unchanged: boolean): void {
+export function recordRender(
+  name: string,
+  unchanged: boolean,
+  causeIds: string[] = [],
+): void {
   emit(
-    reactEvent(name, "render", `browser:render:${name}`, {
-      unchanged,
-      changedProps: unchanged ? [] : ["unknown"],
-    }),
+    reactEvent(
+      name,
+      "render",
+      `browser:render:${name}`,
+      {
+        unchanged,
+        changedProps: unchanged ? [] : ["unknown"],
+      },
+      undefined,
+      causeIds,
+    ),
   );
 }
 
@@ -158,6 +169,7 @@ function sampleFibersUnsafe(): void {
     deps: string;
   }[] = [];
   walkFibers(root, "root", found, new Set());
+  const samples: SampleCause[] = [];
   for (const item of found) {
     const previous = seenFibers.get(item.key);
     seenFibers.set(item.key, {
@@ -174,16 +186,79 @@ function sampleFibersUnsafe(): void {
     const stateChanged = item.state !== previous.state;
     const depsChanged = item.deps !== previous.deps;
     const rerendered = item.propsRef !== previous.propsRef || stateChanged;
-    if (rerendered) {
-      recordRender(item.name, !propsChanged && !stateChanged);
-    }
-    if (stateChanged) {
-      emit(reactEvent(item.name, "state-update", `browser:state:${item.name}`));
-    }
-    if (depsChanged) {
-      emit(reactEvent(item.name, "effect", `browser:effect:${item.name}`));
+    samples.push({
+      key: item.key,
+      name: item.name,
+      stateChanged,
+      depsChanged,
+      rerendered,
+      unchanged: !propsChanged && !stateChanged,
+    });
+  }
+  const stateIds = new Map<string, string>();
+  for (const sample of samples) {
+    if (sample.stateChanged) {
+      stateIds.set(sample.key, newEventId());
     }
   }
+  for (const sample of samples) {
+    const causeIds = causeIdsFor(sample.key, sample.stateChanged, stateIds);
+    if (sample.stateChanged) {
+      emit(
+        reactEvent(
+          sample.name,
+          "state-update",
+          `browser:state:${sample.name}`,
+          undefined,
+          stateIds.get(sample.key),
+        ),
+      );
+    }
+    if (sample.rerendered) {
+      recordRender(sample.name, sample.unchanged, causeIds);
+    }
+    if (sample.depsChanged) {
+      emit(
+        reactEvent(
+          sample.name,
+          "effect",
+          `browser:effect:${sample.name}`,
+          undefined,
+          undefined,
+          causeIds,
+        ),
+      );
+    }
+  }
+}
+
+type SampleCause = {
+  key: string;
+  name: string;
+  stateChanged: boolean;
+  depsChanged: boolean;
+  rerendered: boolean;
+  unchanged: boolean;
+};
+
+function causeIdsFor(
+  key: string,
+  ownState: boolean,
+  stateIds: Map<string, string>,
+): string[] {
+  if (ownState) {
+    const own = stateIds.get(key);
+    return own ? [own] : [];
+  }
+  let path = key;
+  while (path.includes("/")) {
+    path = path.slice(0, path.lastIndexOf("/"));
+    const ancestor = stateIds.get(path);
+    if (ancestor) {
+      return [ancestor];
+    }
+  }
+  return [];
 }
 
 function fiberRoot(node: Node): Fiber | null {
@@ -338,6 +413,7 @@ function flushCommits(): void {
         unchanged: boolean;
         stateChanged: boolean;
         effectRestarted: boolean;
+        causeName?: string;
       }[][];
     }
   ).__siCommits;
@@ -346,20 +422,41 @@ function flushCommits(): void {
   }
   const pending = commits.splice(0, commits.length);
   for (const commit of pending) {
+    const stateIds = new Map<string, string>();
     for (const render of commit) {
-      recordRender(render.name, render.unchanged);
-      if (render.stateChanged) {
+      if (render.stateChanged && !stateIds.has(render.name)) {
+        stateIds.set(render.name, newEventId());
+      }
+    }
+    for (const [name, id] of stateIds) {
+      emit(
+        reactEvent(
+          name,
+          "state-update",
+          `browser:state:${name}`,
+          undefined,
+          id,
+        ),
+      );
+    }
+    for (const render of commit) {
+      const causeId = render.stateChanged
+        ? stateIds.get(render.name)
+        : render.causeName
+          ? stateIds.get(render.causeName)
+          : undefined;
+      const causeIds = causeId ? [causeId] : [];
+      recordRender(render.name, render.unchanged, causeIds);
+      if (render.effectRestarted) {
         emit(
           reactEvent(
             render.name,
-            "state-update",
-            `browser:state:${render.name}`,
+            "effect",
+            `browser:effect:${render.name}`,
+            undefined,
+            undefined,
+            causeIds,
           ),
-        );
-      }
-      if (render.effectRestarted) {
-        emit(
-          reactEvent(render.name, "effect", `browser:effect:${render.name}`),
         );
       }
     }
@@ -371,11 +468,14 @@ function reactEvent(
   kind: string,
   nodeKey: string,
   attributes?: Record<string, unknown>,
+  id?: string,
+  causeIds?: string[],
 ): GraphEvent {
   const traceId = readActiveTrace() ?? newTraceId();
   return {
-    id: newEventId(),
+    id: id ?? newEventId(),
     traceId,
+    ...(causeIds && causeIds.length > 0 ? { causeIds } : {}),
     nodeKey,
     kind,
     layer: "browser",

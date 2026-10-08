@@ -126,7 +126,11 @@ function patchIncoming(): void {
       phase: "start",
       name: `${request.method ?? "GET"} ${path}`,
       ts: Date.now(),
-      attributes: { method: request.method ?? "GET", path },
+      attributes: {
+        method: request.method ?? "GET",
+        path,
+        ...(parsed ? { parentSpanId: parsed.spanId } : {}),
+      },
     });
     return storage.run(store, () => originalEmit.apply(this, [event, ...args]));
   };
@@ -161,7 +165,11 @@ function patchFetch(): void {
       phase: "start",
       name: `${method} ${path}`,
       ts: Date.now(),
-      attributes: { method, path },
+      attributes: {
+        method,
+        path,
+        ...(carried ? {} : { spanId }),
+      },
     });
     const response = await original(input, { ...init, headers });
     emit({
