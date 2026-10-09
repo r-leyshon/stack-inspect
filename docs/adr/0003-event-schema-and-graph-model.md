@@ -53,7 +53,7 @@ Rules:
 - Adapters only emit events. Nodes and edges are derived by the graph projector.
 - Events are append-only and never edited.
 - `nodeKey` must stay the same for the same logical thing across interactions and restarts. For example: component display name plus position in the tree, route template rather than concrete URL, normalised SQL fingerprint rather than query text.
-- Attributes are redacted by default: no request bodies, cookies, tokens or SQL parameter values.
+- Attributes are redacted by default: no request bodies, cookies, tokens or SQL parameter values. Parameter values are recorded only when `STACK_INSPECT_VALUES=1` ([ADR 0016](0016-optional-parameter-values.md)).
 
 ## Consequences
 

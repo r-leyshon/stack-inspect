@@ -24,6 +24,15 @@ def enabled() -> bool:
     return True
 
 
+def values_enabled() -> bool:
+    """Return whether bound parameter values may be recorded.
+
+    This stays off unless ``STACK_INSPECT_VALUES=1`` and recording itself is
+    allowed. Production is still refused.
+    """
+    return enabled() and os.environ.get("STACK_INSPECT_VALUES") == "1"
+
+
 def _is_production() -> bool:
     """Return whether the current environment variables name production."""
     checked = (

@@ -24,6 +24,8 @@ Where the comparison is solid, the render names that state update in `causeIds`:
 
 The projector turns `causeIds` into a `caused` edge.
 
+The value that changed may be stored on that state-update event when `STACK_INSPECT_VALUES=1` ([ADR 0016](../adr/0016-optional-parameter-values.md)). That is the new hook value, not a list of what the function read.
+
 ## What we will not claim
 
 A `caused` edge here means "this state update was in the commit that produced this render". It does not mean the component read that state. Naming the read set needs a mechanism React does not give the DevTools hook: a compiler, a custom renderer, or a wrapper around every state cell. That is a later spike, not a small extension of the fiber walk.

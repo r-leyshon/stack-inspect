@@ -9,6 +9,7 @@ import {
   type GraphEvent,
   newEventId,
   newTraceId,
+  valuesEnabled,
 } from "@stack-inspect/core";
 import type React from "react";
 
@@ -193,6 +194,7 @@ function sampleFibersUnsafe(): void {
       depsChanged,
       rerendered,
       unchanged: !propsChanged && !stateChanged,
+      state: stateChanged ? changedHookValues(previous.state, item.state) : "",
     });
   }
   const stateIds = new Map<string, string>();
@@ -209,7 +211,7 @@ function sampleFibersUnsafe(): void {
           sample.name,
           "state-update",
           `browser:state:${sample.name}`,
-          undefined,
+          stateAttributes(sample.state),
           stateIds.get(sample.key),
         ),
       );
@@ -239,6 +241,7 @@ type SampleCause = {
   depsChanged: boolean;
   rerendered: boolean;
   unchanged: boolean;
+  state: string;
 };
 
 function causeIdsFor(
@@ -414,6 +417,7 @@ function flushCommits(): void {
         stateChanged: boolean;
         effectRestarted: boolean;
         causeName?: string;
+        state?: string;
       }[][];
     }
   ).__siCommits;
@@ -423,9 +427,13 @@ function flushCommits(): void {
   const pending = commits.splice(0, commits.length);
   for (const commit of pending) {
     const stateIds = new Map<string, string>();
+    const stateValues = new Map<string, string>();
     for (const render of commit) {
       if (render.stateChanged && !stateIds.has(render.name)) {
         stateIds.set(render.name, newEventId());
+        if (render.state) {
+          stateValues.set(render.name, render.state);
+        }
       }
     }
     for (const [name, id] of stateIds) {
@@ -434,7 +442,7 @@ function flushCommits(): void {
           name,
           "state-update",
           `browser:state:${name}`,
-          undefined,
+          stateAttributes(stateValues.get(name)),
           id,
         ),
       );
@@ -460,6 +468,49 @@ function flushCommits(): void {
         );
       }
     }
+  }
+}
+
+function recordStateValues(): boolean {
+  if (typeof window !== "undefined") {
+    const page = window as Window & { __stackInspectRecordValues?: boolean };
+    if (page.__stackInspectRecordValues) {
+      return true;
+    }
+  }
+  return valuesEnabled();
+}
+
+function stateAttributes(
+  raw: string | undefined,
+): Record<string, unknown> | undefined {
+  if (!recordStateValues() || !raw) {
+    return undefined;
+  }
+  try {
+    return { state: JSON.parse(raw) as unknown };
+  } catch {
+    return { state: raw.slice(0, 200) };
+  }
+}
+
+function changedHookValues(previous: string, current: string): string {
+  if (!recordStateValues()) {
+    return "";
+  }
+  try {
+    const prior = JSON.parse(previous) as unknown;
+    const next = JSON.parse(current) as unknown;
+    if (Array.isArray(prior) && Array.isArray(next)) {
+      const changed = next.filter(
+        (value, index) =>
+          JSON.stringify(value) !== JSON.stringify(prior[index]),
+      );
+      return JSON.stringify(changed.length > 0 ? changed : next).slice(0, 200);
+    }
+    return JSON.stringify(next).slice(0, 200);
+  } catch {
+    return current.slice(0, 200);
   }
 }
 

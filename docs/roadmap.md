@@ -67,13 +67,13 @@ Adapters for TanStack Query and SWR that record cache keys, observers and invali
 
 ## Horizon 3: invalidation graph (long-term goal)
 
-These milestones are research. Each starts with a spike to test feasibility before committing to a design. The span a request sends is now a `caused` edge to the next hop ([ADR 0015](adr/0015-span-id-is-a-cause.md)). React can name the state update that preceded a render, and cannot yet name the values read during that render ([spike](spikes/0001-react-reads.md)).
+These milestones are research. Each starts with a spike to test feasibility before committing to a design. The span a request sends is now a `caused` edge to the next hop ([ADR 0015](adr/0015-span-id-is-a-cause.md)). React can name the state update that preceded a render, and cannot yet name the values read during that render ([spike](spikes/0001-react-reads.md)). A request can be joined to the query it ran, and does not say which parameter became which placeholder ([spike](spikes/0002-backend-reads.md)). M10 is not to be built.
 
 ### M9: React read tracking
 Record which state, context and props each component and effect actually read, and which of them had changed when it re-ran.
 
 ### M10: Backend read tracking
-Track which request parameters flowed into which service calls and queries.
+Stopped. The [spike](spikes/0002-backend-reads.md) found that a request can be joined to the query it ran, and that the placeholder stays in the statement, and that no parameter can be tied to that placeholder. Do not build this. Do not wrap parameters, and do not infer an edge from equal values. Bound values and a short preview of returned rows are recorded only when `STACK_INSPECT_VALUES=1` ([ADR 0016](adr/0016-optional-parameter-values.md)). The next research gate is M11.
 
 ### M11: Dependencies across boundaries
 Carry "this depends on that" information across HTTP and streams, so a frontend value can be linked to the backend work it causes.

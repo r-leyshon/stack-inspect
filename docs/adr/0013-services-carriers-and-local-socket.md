@@ -15,7 +15,7 @@ Binding the collector to anything but loopback would let a container reach it, a
 - **Carrier.** `inject` writes the active W3C `traceparent` into a plain string map. `extract` reads it back. HTTP headers remain the carrier for HTTP. Any other hop is the application's map: queue properties, metadata, a job payload. stack-inspect does not ship an adapter for a particular queue or store.
 - **Browser storage.** IndexedDB and the Origin Private File System are wrapped like `fetch`. The event records the store or path, the operation, and a byte count. Values and file bytes are not recorded. The storage install runs in a worker, because sync file access exists only there.
 - **Socket.** The collector can also listen on a Unix socket (`--socket` or `STACK_INSPECT_SOCKET`). A container mounts that socket. The TCP listener stays on `127.0.0.1` and still refuses any other client. The socket file is mode `0600`.
-- **SQLAlchemy** is an optional extra of the database adapter, beside asyncpg. It listens for statement execution and does not record parameters.
+- **SQLAlchemy** is an optional extra of the database adapter, beside asyncpg. It listens for statement execution. It records bound arguments only when `STACK_INSPECT_VALUES=1` ([ADR 0016](0016-optional-parameter-values.md)).
 
 ## Consequences
 

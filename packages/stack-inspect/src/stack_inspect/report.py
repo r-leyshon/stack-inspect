@@ -17,7 +17,16 @@ if TYPE_CHECKING:
     from stack_inspect.source import DeclaredEdge
 
 _REPEATED_MIN = 2
-_REDACTION = "Request bodies, cookies, tokens, SQL parameter values and storage record contents are not included."
+_REDACTION = (
+    "Request bodies, cookies, tokens, SQL parameter values, query rows, React state values "
+    "and storage record contents are not included."
+)
+_VALUES_REDACTION = (
+    "Path parameters, query-string parameters, SQL parameter values, a short preview of query rows "
+    "and the React state value that changed are included because recording them was turned on. "
+    "Request bodies, cookies, tokens and storage record contents are not."
+)
+_RECORDED_KEYS = ("parameters", "query", "pathParams", "rows", "state")
 
 
 def build_report(
@@ -42,7 +51,7 @@ def build_report(
         "from": _iso(min(times)) if times else None,
         "to": _iso(max(times)) if times else None,
         "services": services,
-        "redaction": _REDACTION,
+        "redaction": _redaction_note(visible),
         "findings": [
             {
                 "title": finding.title,
@@ -82,7 +91,7 @@ def render_markdown(report: dict[str, object]) -> str:
         _stories_markdown(report["stories"]),
         _repeated_markdown(report["repeated"]),
         _declared_markdown(report["declared"]),
-        _omitted_markdown(report["omitted"]),
+        _omitted_markdown(report["omitted"], report.get("redaction")),
     ]
     events = report.get("events")
     if isinstance(events, list):
@@ -171,14 +180,15 @@ def _edge_line(edge: dict[str, object]) -> str:
     return f"- `{kind}` {origin} → {target}, seen {edge.get('count')} times"
 
 
-def _omitted_markdown(omitted: object) -> str:
+def _omitted_markdown(omitted: object, redaction: object) -> str:
     asset_count = omitted.get("assets", 0) if isinstance(omitted, dict) else 0
+    note = redaction if isinstance(redaction, str) else _REDACTION
     return "\n".join(
         [
             "## Left out",
             "",
             f"- {asset_count} asset request(s) were omitted.",
-            f"- {_REDACTION}",
+            f"- {note}",
             "",
         ],
     )
@@ -209,15 +219,7 @@ def _stories(spans_by_trace: dict[str, list[Span]]) -> list[dict[str, object]]:
                 "title": _title(ordered),
                 "started": _iso(ordered[0].start),
                 "services": services,
-                "spans": [
-                    {
-                        "lane": span.service or span.layer,
-                        "kind": span.kind,
-                        "name": span.name,
-                        "durationMs": _duration(span),
-                    }
-                    for span in ordered
-                ],
+                "spans": [_story_span(span) for span in ordered],
             },
         )
     stories.sort(key=lambda story: str(story["started"]))
@@ -284,11 +286,38 @@ def _story_markdown(story: dict[str, object]) -> list[str]:
             if isinstance(span, dict):
                 duration = span.get("durationMs")
                 timing = "instant" if not isinstance(duration, int | float) or duration < 1 else f"{int(duration)} ms"
-                lines.append(
-                    f"- {_plain(span.get('lane'))} {_plain(span.get('kind'))} {_plain(span.get('name'))} ({timing})",
-                )
+                label = f"{_plain(span.get('lane'))} {_plain(span.get('kind'))} {_plain(span.get('name'))}"
+                lines.append(f"- {label} ({timing}){_recorded_suffix(span)}")
     lines.append("")
     return lines
+
+
+def _story_span(span: Span) -> dict[str, object]:
+    item: dict[str, object] = {
+        "lane": span.service or span.layer,
+        "kind": span.kind,
+        "name": span.name,
+        "durationMs": _duration(span),
+    }
+    for key in _RECORDED_KEYS:
+        if key in span.attributes:
+            item[key] = span.attributes[key]
+    return item
+
+
+def _recorded_suffix(span: dict[str, object]) -> str:
+    parts = [f"{key} {_plain(span.get(key))}" for key in _RECORDED_KEYS if span.get(key)]
+    if not parts:
+        return ""
+    return f" [{'; '.join(parts)}]"
+
+
+def _redaction_note(events: list[GraphEvent]) -> str:
+    for event in events:
+        attributes = event.get("attributes")
+        if isinstance(attributes, dict) and any(key in attributes for key in _RECORDED_KEYS):
+            return _VALUES_REDACTION
+    return _REDACTION
 
 
 def _is_asset(name: str) -> bool:

@@ -47,6 +47,10 @@ def _app() -> FastAPI:
     async def items() -> dict[str, bool]:
         return {"ok": True}
 
+    @app.get("/api/items/{item_id}")
+    async def item(item_id: str) -> dict[str, str]:
+        return {"id": item_id}
+
     stack_inspect_fastapi.install(app)
     return app
 
@@ -95,6 +99,41 @@ async def test_rejected_preflight_records_the_header(
     attributes = options[-1]["attributes"]
     assert isinstance(attributes, dict)
     assert "X-Custom-Header" in str(attributes["requestedHeaders"])
+
+
+@pytest.mark.anyio
+async def test_query_string_stays_out_unless_values_are_enabled(
+    captured: list[dict[str, object]],
+) -> None:
+    """A query string is not an event attribute until value recording is turned on."""
+    transport = ASGITransport(app=_app())
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.get("/api/items", params={"q": "hello"})
+    assert response.is_success
+    assert "hello" not in str(captured)
+
+
+@pytest.mark.anyio
+async def test_query_and_path_values_are_recorded_when_asked(
+    captured: list[dict[str, object]],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Path and query parameters are stored, and the trace carrier and secrets are not."""
+    monkeypatch.setenv("STACK_INSPECT_VALUES", "1")
+    transport = ASGITransport(app=_app())
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        await client.get(
+            "/api/items/synthetic-id",
+            params={"q": "hello", "token": "secret", "stack_inspect_traceparent": "not-a-trace"},
+        )
+    ends = [event for event in captured if event.get("phase") == "end" and event.get("kind") == "request"]
+    attributes = ends[-1]["attributes"]
+    assert isinstance(attributes, dict)
+    assert attributes["query"] == {"q": "hello"}
+    assert attributes["pathParams"] == {"item_id": "synthetic-id"}
+    assert "secret" not in str(attributes["query"])
+    assert "not-a-trace" not in str(attributes)
+    assert ends[-1]["nodeKey"] == "api:request:GET /api/items/synthetic-id"
 
 
 def test_install_is_a_no_op_when_disabled(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -17,8 +17,10 @@ from stack_inspect_core import (
     new_span_id,
     new_trace_id,
     parse_traceparent,
+    plain_parameters,
     push_context,
     reset_context,
+    values_enabled,
 )
 from stack_inspect_core.context import TraceContext
 
@@ -183,7 +185,7 @@ async def _observe_http(app: ASGIApp, scope: Scope, receive: Receive, send: Send
         "path": path,
         "spanId": span_id,
         "traceparent": format_traceparent(trace_id, span_id),
-    }
+    } | _opt_in_request(scope)
     if parent_span is not None:
         attributes["parentSpanId"] = parent_span
     origin = headers.get("origin")
@@ -213,6 +215,7 @@ async def _observe_http(app: ASGIApp, scope: Scope, receive: Receive, send: Send
             allow_origin = response_headers.get("access-control-allow-origin", "")
             content_type = response_headers.get("content-type", "")
             end_attributes = dict(attributes)
+            end_attributes.update(_opt_in_request(scope))
             end_attributes["status"] = status
             end_attributes["accessControlAllowOrigin"] = allow_origin
             end_attributes["allowedHeaders"] = response_headers.get(
@@ -400,6 +403,39 @@ def _unwrap(text: str) -> tuple[str, str]:
 
 
 _STREAM_OPENS: dict[tuple[str, str], int] = {}
+
+
+def _opt_in_request(scope: Scope) -> dict[str, object]:
+    """Return path and query parameters when value recording is on.
+
+    The trace carrier is not an application parameter. Bodies, cookies and
+    authorization headers are never copied.
+    """
+    if not values_enabled():
+        return {}
+    found: dict[str, object] = {}
+    query = _application_query(scope)
+    if query:
+        found["query"] = query
+    path_params = scope.get("path_params")
+    if isinstance(path_params, dict) and path_params:
+        shaped = plain_parameters(path_params)
+        if isinstance(shaped, dict) and shaped:
+            found["pathParams"] = shaped
+    return found
+
+
+def _application_query(scope: Scope) -> dict[str, object]:
+    raw = scope.get("query_string", b"")
+    if isinstance(raw, bytes):
+        raw = raw.decode("latin-1")
+    found: dict[str, object] = {}
+    for key, values in parse_qs(str(raw), keep_blank_values=False).items():
+        if key == "stack_inspect_traceparent" or not values:
+            continue
+        found[key] = values[0] if len(values) == 1 else values
+    shaped = plain_parameters(found)
+    return shaped if isinstance(shaped, dict) else {}
 
 
 def _trace_from_query(scope: Scope) -> tuple[str, str] | None:

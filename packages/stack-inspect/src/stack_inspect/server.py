@@ -201,19 +201,25 @@ def _trace_summary(trace_id: str, spans: list[Span]) -> dict[str, object]:
         "started": ordered[0].start if ordered else 0,
         "names": [span.name for span in ordered],
         "layers": sorted({span.layer for span in ordered}),
-        "spans": [
-            {
-                "name": span.name,
-                "layer": span.layer,
-                "service": span.service,
-                "kind": span.kind,
-                "nodeKey": span.node_key,
-                "start": span.start,
-                "end": span.end if span.end is not None else span.start,
-            }
-            for span in ordered
-        ],
+        "spans": [_span_payload(span) for span in ordered],
     }
+
+
+def _span_payload(span: Span) -> dict[str, object]:
+    """Return one span, including opted-in parameter values when they were recorded."""
+    body: dict[str, object] = {
+        "name": span.name,
+        "layer": span.layer,
+        "service": span.service,
+        "kind": span.kind,
+        "nodeKey": span.node_key,
+        "start": span.start,
+        "end": span.end if span.end is not None else span.start,
+    }
+    for key in ("parameters", "query", "pathParams", "rows", "state"):
+        if key in span.attributes:
+            body[key] = span.attributes[key]
+    return body
 
 
 def default_log_path() -> Path:

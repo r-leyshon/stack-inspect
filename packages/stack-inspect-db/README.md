@@ -1,6 +1,6 @@
 # stack-inspect-db
 
-Records SQL statements issued through asyncpg or SQLAlchemy. Parameter values are never stored: each query is kept as a normalised fingerprint. For asyncpg, the trace id is also attached as a SQL comment so database logs can be matched to the request.
+Records SQL statements issued through asyncpg or SQLAlchemy. Each query is kept as a normalised fingerprint. Parameter values, and a short preview of rows asyncpg already returned, are stored only when `STACK_INSPECT_VALUES=1`. The SQLAlchemy cursor is left unread. For asyncpg, the trace id is also attached as a SQL comment so database logs can be matched to the request.
 
 ```python
 import stack_inspect_db

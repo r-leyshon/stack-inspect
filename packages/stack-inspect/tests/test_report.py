@@ -83,3 +83,23 @@ def test_report_can_include_events_as_json(tmp_path: Path) -> None:
     assert body["stories"][0]["traceId"] == "trace-jobs"
     assert body["events"][0]["name"] == "POST /jobs"
     assert "attachment" in client.get("/v1/report", params={"format": "json"}).headers["content-disposition"]
+
+
+def test_report_names_values_when_they_were_recorded(tmp_path: Path) -> None:
+    """A report that contains parameter values says so, and prints them in the story."""
+    log = EventLog(tmp_path / "events.db")
+    log.append(
+        _event(
+            "query",
+            nodeKey="db:query:items",
+            kind="query",
+            layer="db",
+            name="select name from items where id = $1",
+            attributes={"parameters": ["synthetic-id"], "statement": "select name from items where id = $1"},
+        ),
+    )
+    client = TestClient(create_app(log), client=("127.0.0.1", 50000))
+    text = client.get("/v1/report").text
+    assert "synthetic-id" in text
+    assert "because recording them was turned on" in text
+    assert "Request bodies, cookies, tokens" in text

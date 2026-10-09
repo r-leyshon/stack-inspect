@@ -14,6 +14,8 @@ docker compose -f reference/compose.yaml up -d
 uv run python scripts/e2e_stack.py
 ```
 
+`make stack-values` launches that same stack with `STACK_INSPECT_VALUES=1` and `NEXT_PUBLIC_STACK_INSPECT_VALUES=1`, so SQL arguments, a short row preview, request parameters and the React state value that changed are recorded.
+
 Then open the app at <http://127.0.0.1:3000> and the graph at <http://127.0.0.1:9477>. The collector binds to loopback only. The page fills in as you use the app: each click is a trace, the timeline shows which layer did the work, and the graph keeps the links it has seen. **Export**, beside **Reset**, downloads a Markdown or JSON report of the story on screen. Dashed lines are read from the application source when the collector is started with `--root`, and they appear only where both ends have already been recorded. The reference stack passes `--root` for the example apps, so the scan never reads stack-inspect itself. For another app, start the collector with `--root` pointed at that app (or set `STACK_INSPECT_ROOTS`). With no roots, the collector does not guess a directory, and the graph says that roots are required.
 
 A second app at <http://127.0.0.1:8010> is a jobs API plus a worker process. **Run a job** queues work on the API and a separate process continues that trace, so the graph shows a jobs lane and a worker lane.
@@ -36,7 +38,7 @@ import { install as installBrowser } from "@stack-inspect/browser";
 import { install as installReact, devtoolsHookSource } from "@stack-inspect/react";
 ```
 
-The adapters do nothing unless `STACK_INSPECT=1`, and they refuse to start when `NODE_ENV` is `production`.
+The adapters do nothing unless `STACK_INSPECT=1`, and they refuse to start when `NODE_ENV` is `production`. Set `STACK_INSPECT_VALUES=1` as well to record SQL arguments, a short preview of query rows, request path and query parameters, and the React state value that changed. The browser also reads `NEXT_PUBLIC_STACK_INSPECT_VALUES`. Bodies, cookies and tokens stay out, and the reference stack does not set this flag.
 
 Name a process with `STACK_INSPECT_SERVICE` (for example `api` or `worker`) so the timeline can tell processes apart. To follow a trace through a queue or any other message, copy `inject()` into the map you already send, and `extract()` it where the message is received. `STACK_INSPECT_SOCKET` posts events through a Unix socket for processes that cannot use loopback TCP; the collector still refuses any other TCP client.
 

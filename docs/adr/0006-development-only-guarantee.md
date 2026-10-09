@@ -13,7 +13,7 @@ stack-inspect monkey-patches runtimes, records detailed internal behaviour, slow
 - **Refuse production:** adapters also refuse to start if `NODE_ENV=production` or a production Next.js build is detected, or if FastAPI isn't running in a development configuration. When they refuse, they log a clear warning.
 - **Local only:** the collector binds to `127.0.0.1` and rejects connections from other hosts.
 - **Separate packages:** adapters ship as development dependencies, so production builds don't include them.
-- **Redaction by default:** no bodies, cookies, tokens or SQL parameter values are recorded unless explicitly enabled.
+- **Redaction by default:** no bodies, cookies, tokens or SQL parameter values are recorded unless explicitly enabled. That switch is `STACK_INSPECT_VALUES=1` ([ADR 0016](0016-optional-parameter-values.md)).
 
 ## Consequences
 

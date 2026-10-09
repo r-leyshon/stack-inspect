@@ -19,8 +19,10 @@ from stack_inspect_core import (
     new_trace_id,
     normalise_sql,
     parse_traceparent,
+    plain_parameters,
     redact_attributes,
     set_sink,
+    values_enabled,
 )
 from stack_inspect_core.context import TraceContext, current_context, use_context
 
@@ -74,6 +76,24 @@ def test_normalise_sql_drops_literals_and_keeps_placeholders() -> None:
     assert fingerprint_sql(first) == fingerprint_sql(second)
     assert "$1" in normalise_sql(first)
     assert "'a'" not in normalise_sql(first)
+
+
+def test_values_stay_off_unless_asked(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Bound values need both flags, and production still refuses them."""
+    monkeypatch.setenv("STACK_INSPECT", "1")
+    monkeypatch.delenv("STACK_INSPECT_VALUES", raising=False)
+    monkeypatch.delenv("NODE_ENV", raising=False)
+    assert values_enabled() is False
+    monkeypatch.setenv("STACK_INSPECT_VALUES", "1")
+    assert values_enabled() is True
+    monkeypatch.setenv("NODE_ENV", "production")
+    assert values_enabled() is False
+
+
+def test_plain_parameters_keeps_positional_values_and_drops_secret_keys() -> None:
+    """A list of arguments is kept, and a key named token is not."""
+    assert plain_parameters(("synthetic", 2)) == ["synthetic", 2]
+    assert plain_parameters({"id": 1, "token": "nope"}) == {"id": 1}
 
 
 def test_emit_uses_the_sink_only_when_enabled(monkeypatch: pytest.MonkeyPatch) -> None:

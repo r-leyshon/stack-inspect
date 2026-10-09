@@ -91,7 +91,7 @@ adapters → event log → projector and rules → UI
                     Cursor, Claude, or another client
 ```
 
-Agents inherit the same redacted views as the UI. Request bodies, cookies, tokens and SQL parameter values stay out unless the user has explicitly enabled recording them.
+Agents inherit the same redacted views as the UI. Request bodies, cookies and tokens stay out. SQL arguments, a short row preview, request parameters and the React state value that changed stay out unless `STACK_INSPECT_VALUES=1` ([ADR 0016](adr/0016-optional-parameter-values.md)).
 
 The graph model should already be ready for later questions. `causeIds`, `read` and `invalidated` stay in the schema ([ADR 0004](adr/0004-invalidation-ready-graph-model.md)), so an MCP tool can grow those fields without a new protocol.
 

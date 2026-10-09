@@ -43,6 +43,17 @@ export function enabled(): boolean {
   return true;
 }
 
+/** True when parameter and result values may be recorded. Production still refuses. */
+export function valuesEnabled(): boolean {
+  if (!enabled()) {
+    return false;
+  }
+  const flag =
+    readEnv("STACK_INSPECT_VALUES") ??
+    readEnv("NEXT_PUBLIC_STACK_INSPECT_VALUES");
+  return flag === "1";
+}
+
 /** Collector base URL, without a trailing slash. */
 export function collectorUrl(): string {
   return (
@@ -212,6 +223,15 @@ function readEnv(name: string): string | undefined {
   }
   if (name === "NEXT_PUBLIC_STACK_INSPECT_SERVICE") {
     return process.env.NEXT_PUBLIC_STACK_INSPECT_SERVICE;
+  }
+  if (name === "NEXT_PUBLIC_STACK_INSPECT_VALUES") {
+    return process.env.NEXT_PUBLIC_STACK_INSPECT_VALUES;
+  }
+  if (name === "STACK_INSPECT_VALUES") {
+    return (
+      process.env.STACK_INSPECT_VALUES ??
+      process.env.NEXT_PUBLIC_STACK_INSPECT_VALUES
+    );
   }
   return process.env[name];
 }
