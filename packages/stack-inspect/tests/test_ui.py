@@ -85,6 +85,15 @@ def test_page_explains_where_recorded_values_appear(tmp_path: Path) -> None:
     assert "halfway along each message" in page.text
 
 
+def test_latency_chart_warns_that_times_include_the_tool(tmp_path: Path) -> None:
+    """The latency view says the times include stack-inspect and are not production."""
+    client = TestClient(create_app(EventLog(tmp_path / "events.db")), client=("127.0.0.1", 50000))
+    page = client.get("/")
+    assert '<details id="latency-note"' in page.text
+    assert "Development times include stack-inspect" in page.text
+    assert "The adapters do not start in production." in page.text
+
+
 def test_page_rests_a_large_graph(tmp_path: Path) -> None:
     """A single story keeps the force layout longer than the whole session."""
     client = TestClient(create_app(EventLog(tmp_path / "events.db")), client=("127.0.0.1", 50000))

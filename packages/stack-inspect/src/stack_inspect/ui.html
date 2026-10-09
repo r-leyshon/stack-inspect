@@ -336,6 +336,27 @@
       right: 0.55rem;
       z-index: 3;
     }
+    .latency-note {
+      display: none;
+      margin: 0 0.85rem 0.45rem;
+      border: 1px solid #6a5330;
+      border-radius: 6px;
+      background: #2a2216;
+      color: #f0d7a2;
+      font-size: 0.78rem;
+      line-height: 1.4;
+    }
+    #graph-wrap[data-view="latency"] .latency-note { display: block; }
+    .latency-note summary {
+      padding: 0.45rem 0.7rem;
+      cursor: pointer;
+      font-weight: 600;
+    }
+    .latency-note p {
+      margin: 0;
+      padding: 0 0.7rem 0.55rem 1.55rem;
+      color: #e8dcc4;
+    }
     #stage { position: relative; flex: 1; min-height: 0; }
     #graph, #sequence, #latency { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
     #graph { cursor: grab; }
@@ -547,6 +568,10 @@
         </span>
       </div>
       <button type="button" class="info graph-help" data-help="graph" aria-label="About the graph">i</button>
+      <details id="latency-note" class="latency-note">
+        <summary>Development times include stack-inspect</summary>
+        <p>The API and the database wait while each event is posted here, so a short query can look slower than the database work. A rise on one line is still that run getting slower. The adapters do not start in production.</p>
+      </details>
       <div id="stage">
         <canvas id="graph"></canvas>
         <div id="sequence" aria-label="Sequence diagram"></div>
@@ -2508,7 +2533,7 @@
       timeline: "The ruler is the whole recording, with the long pauses between clicks taken out so the clips sit together. The orange line is the playhead. Press restart to jump to the start, like skip back in a music player. Press the round play control to walk forward, and press it again to pause. Drag the ruler or the playhead triangle to an exact moment. Clips that have not happened yet stay hidden. This trace, Hide assets and the layer buttons can narrow the picture. Live parks the playhead at the end.",
       "view-graph": "Each dot is something that ran. A line means one thing caused or contained another. Values, when on, writes the playhead run halfway along each line.",
       "view-sequence": "Sequence draws the same things in time order, with a column for each part of the stack. Values, when on, writes the playhead run halfway along each message.",
-      "view-latency": "Each point is one finished run of a request or query. The line joins later runs of that same request, so a rise means it took longer. There is one line per request. The vertical axis covers those runs, in decades. Click a point to select that request in the graph and the sequence diagram.",
+      "view-latency": "Each point is one finished run of a request or query. The line joins later runs of that same request, so a rise means it took longer. There is one line per request. The vertical axis covers those runs, in decades. Click a point to select that request in the graph and the sequence diagram. Development times include stack-inspect. The API and the database wait while each event is posted here, so a short query can look slower than the database work. A rise on one line is still that run getting slower. The adapters do not start in production.",
       graph: "Each dot is something that ran. It starts small and grows each time that thing runs again, up to the playhead. Once the playhead has reached it, the dot stays while playback moves forward. A line means one event recorded that it happened inside another, or because of another. A click is the cause of the browser call that follows it. Hover that click to count what followed it. After a second press, the count splits into every time and some of the time. A request that carried another request's span id is the cause of that next hop. A line into a finished request or query takes its colour from that request's median duration, up to the playhead. Under 50 ms stays cool, a few hundred milliseconds turns warm, and around a second is hot. Thickness still follows the count. A rose line is duplicated work with no measured duration. A dashed line was read from the application source, and it appears only when both ends have already run. Sharing a trace does not draw a line, so jobs and worker can be in the same story with nothing joining them. Drag the background to move around, scroll to zoom, and drag a dot to pin it. Hover a dot to see what it connects to. Names starts off. Sequence and Latency switch this panel without clearing the filters. This trace keeps pushing dots apart up to 250 of them, and All activity up to 120. Past that the dots sit in columns by layer, in the order they first ran. A settled picture rests until the playhead, the filters or a new event changes it. Dragging a dot moves that dot only.",
       names: "Shows the full name beside every dot, the full name on every sequence message, and the name of every latency line, including while a finding is open. It starts off. With it off, hovering a dot still names that dot and every dot joined to it. Sequence messages keep a short name either way.",
       values: "Shows recorded values halfway along each line, on the graph and on the sequence diagram. The caption is that run at the playhead, in the same gold label in both views. A dot with no line shows the label beside it. Values starts on. Turn it off to leave the lines clear. Hovering a dot still lists the values.",
