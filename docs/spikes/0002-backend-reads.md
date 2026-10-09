@@ -34,4 +34,4 @@ Do not implement parameter-to-placeholder tracking, and do not wrap parameters i
 
 Bound values, and a short preview of the rows a query already returned, may be recorded, and only when `STACK_INSPECT_VALUES=1` ([ADR 0016](../adr/0016-optional-parameter-values.md)). That records what was passed and a few cells that came back. It does not draw an edge because two values are equal, and it does not say which parameter became which placeholder.
 
-The next research gate is M11, carrying a dependency across HTTP. Do not start it until that spike is asked for.
+The next research gate was M11. That spike has since stopped: a cache key does not cross HTTP ([spike](0003-cross-boundary-dependencies.md)). The next research gate is M12. Do not start it until that spike is asked for.

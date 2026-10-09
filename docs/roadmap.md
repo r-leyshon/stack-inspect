@@ -67,19 +67,19 @@ Adapters for TanStack Query and SWR that record cache keys, observers and invali
 
 ## Horizon 3: invalidation graph (long-term goal)
 
-These milestones are research. Each starts with a spike to test feasibility before committing to a design. The span a request sends is now a `caused` edge to the next hop ([ADR 0015](adr/0015-span-id-is-a-cause.md)). React can name the state update that preceded a render, and cannot yet name the values read during that render ([spike](spikes/0001-react-reads.md)). A request can be joined to the query it ran, and does not say which parameter became which placeholder ([spike](spikes/0002-backend-reads.md)). M10 is not to be built.
+These milestones are research. Each starts with a spike to test feasibility before committing to a design. The span a request sends is now a `caused` edge to the next hop ([ADR 0015](adr/0015-span-id-is-a-cause.md)). React can name the state update that preceded a render, and cannot yet name the values read during that render ([spike](spikes/0001-react-reads.md)). A request can be joined to the query it ran, and does not say which parameter became which placeholder ([spike](spikes/0002-backend-reads.md)). A cache key stays in the browser, and the span id already carries the request ([spike](spikes/0003-cross-boundary-dependencies.md)). A statement names its table, and that does not say a write invalidated a cache ([spike](spikes/0004-database-writes.md)). M10, M11 and M12 are not to be built.
 
 ### M9: React read tracking
 Record which state, context and props each component and effect actually read, and which of them had changed when it re-ran.
 
 ### M10: Backend read tracking
-Stopped. The [spike](spikes/0002-backend-reads.md) found that a request can be joined to the query it ran, and that the placeholder stays in the statement, and that no parameter can be tied to that placeholder. Do not build this. Do not wrap parameters, and do not infer an edge from equal values. Bound values and a short preview of returned rows are recorded only when `STACK_INSPECT_VALUES=1` ([ADR 0016](adr/0016-optional-parameter-values.md)). The next research gate is M11.
+Stopped. The [spike](spikes/0002-backend-reads.md) found that a request can be joined to the query it ran, and that the placeholder stays in the statement, and that no parameter can be tied to that placeholder. Do not build this. Do not wrap parameters, and do not infer an edge from equal values. Bound values and a short preview of returned rows are recorded only when `STACK_INSPECT_VALUES=1` ([ADR 0016](adr/0016-optional-parameter-values.md)).
 
 ### M11: Dependencies across boundaries
-Carry "this depends on that" information across HTTP and streams, so a frontend value can be linked to the backend work it causes.
+Stopped. The [spike](spikes/0003-cross-boundary-dependencies.md) found that a cache key stays on the browser render, and that the span id already carries the request to the API and the query. Nothing copies one onto the other. Sharing a trace or a click is not a cause. Do not build this. Do not infer an edge from equal values.
 
 ### M12: Database writes to invalidations
-Link PostgreSQL writes to the cached reads of the same data. Possible mechanisms include parsing query fingerprints for the tables they touch, `LISTEN`/`NOTIFY`, or logical decoding.
+Stopped. The [spike](spikes/0004-database-writes.md) found that the statement text already names the table, and that the only PostgreSQL writes are the untraced startup seed. The `["results"]` cache does not name that table, and the database has no `NOTIFY`, publication or logical decoding. Do not build this. Do not treat a shared table name as an invalidation. No further research gate is scheduled.
 
 **Done when (the long-term goal):** for any render, request or query, stack-inspect can say which changed value caused it to run and what else that change invalidated.
 

@@ -167,6 +167,8 @@ Likely sources of `read` and `invalidated` edges, roughly in order of feasibilit
 - FastAPI request parameters flowing into queries.
 - PostgreSQL writes matched to cached reads of the same tables.
 
+The first of these is in place. A React render can name the state update in its commit, and cannot name the values it read ([spike](spikes/0001-react-reads.md)). A request parameter cannot be tied to a query placeholder ([spike](spikes/0002-backend-reads.md)). A cache key does not cross HTTP onto the request it fetches ([spike](spikes/0003-cross-boundary-dependencies.md)). A statement that names a table does not say a write invalidated a cached read of that table ([spike](spikes/0004-database-writes.md)).
+
 ## 9. Analysis rules
 
 Rules run over the projected graph and raise findings in the UI:
