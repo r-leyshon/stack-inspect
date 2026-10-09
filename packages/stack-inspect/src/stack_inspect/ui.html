@@ -538,6 +538,10 @@
           <button type="button" class="info" data-help="names" aria-label="About Names">i</button>
         </span>
         <span class="hint">
+          <button class="tool" type="button" id="values" aria-pressed="true">Values</button>
+          <button type="button" class="info" data-help="values" aria-label="About Values">i</button>
+        </span>
+        <span class="hint">
           <button class="tool" type="button" id="fit">Fit</button>
           <button type="button" class="info" data-help="fit" aria-label="About Fit">i</button>
         </span>
@@ -586,6 +590,8 @@
       "work-after-visible": "More work started after the result was already on screen. The person using the app was waiting on something that did not change what they could see.",
     };
 
+    const FORCE_LIMIT = { trace: 250, all: 120 };
+
     const state = {
       traces: [],
       nodes: new Map(),
@@ -602,6 +608,7 @@
       sourceNote: "",
       hideAssets: true,
       showNames: false,
+      showValues: true,
       playing: false,
       cursor: null,
       playAnim: 0,
@@ -625,6 +632,22 @@
       camera: { x: 0, y: 0, k: 1 },
       hover: "",
       drag: null,
+      epoch: 0,
+      traceStamp: "",
+      cutoffToken: "",
+      cutoffValue: null,
+      arrangement: null,
+      arrangementEpoch: -1,
+      playheadValues: new Map(),
+      reachedCounts: new Map(),
+      derivedKey: "",
+      latencyKey: "",
+      layoutKey: "",
+      awake: true,
+      awakeFrames: 0,
+      radiiSettled: false,
+      inputStamp: "",
+      captionWidths: new Map(),
     };
 
     const canvas = document.getElementById("graph");
@@ -789,6 +812,7 @@
     }
 
     function buildArrangement() {
+      if (state.arrangement && state.arrangementEpoch === state.epoch) return state.arrangement;
       const ordered = recordedTraces()
         .filter((trace) => trace.spans.length > 0)
         .map((trace) => ({ trace, map: clockOf(trace) }))
@@ -804,7 +828,9 @@
         cursor += item.map.length + 56;
         return story;
       });
-      return { stories, end: stories.length ? stories[stories.length - 1].displayEnd : 0 };
+      state.arrangement = { stories, end: stories.length ? stories[stories.length - 1].displayEnd : 0 };
+      state.arrangementEpoch = state.epoch;
+      return state.arrangement;
     }
 
     function playheadDisplay(arranged) {
@@ -829,18 +855,25 @@
     }
 
     function cutoff() {
+      const token = `${state.epoch}|${state.cursor}|${state.playing}`;
+      if (token === state.cutoffToken) return state.cutoffValue;
       const at = wallNow();
-      if (at == null) return null;
-      if (state.cursor == null && !state.playing) {
-        state.highWater = null;
-        return at;
+      let value = at;
+      if (at != null) {
+        if (state.cursor == null && !state.playing) {
+          state.highWater = null;
+          value = at;
+        } else if (state.highWater == null || at + 0.5 >= state.highWater) {
+          state.highWater = state.highWater == null ? at : Math.max(state.highWater, at);
+          value = state.highWater;
+        } else {
+          state.highWater = at;
+          value = at;
+        }
       }
-      if (state.highWater == null || at + 0.5 >= state.highWater) {
-        state.highWater = state.highWater == null ? at : Math.max(state.highWater, at);
-        return state.highWater;
-      }
-      state.highWater = at;
-      return at;
+      state.cutoffToken = token;
+      state.cutoffValue = value;
+      return value;
     }
 
     function placePlayhead() {
@@ -1057,12 +1090,19 @@
       return rows;
     }
 
+    function sequencePitch() {
+      if (!state.showValues) return SEQUENCE_ROW;
+      const valued = visibleNodes().some((node) => playheadValue(node.nodeKey));
+      return valued ? 48 : SEQUENCE_ROW;
+    }
+
     function sequenceGeometry() {
       const layers = LAYERS.filter(([id]) => state.layers.has(id));
       const colX = new Map(layers.map(([id], index) => [id, SEQUENCE_PAD + index * SEQUENCE_COL + SEQUENCE_COL / 2]));
       const rows = sequenceRows().filter((row) => colX.has(row.from.layer) && colX.has(row.to.layer));
+      const pitch = sequencePitch();
       rows.forEach((row, index) => {
-        row.y = SEQUENCE_HEAD + index * SEQUENCE_ROW + SEQUENCE_ROW / 2;
+        row.y = SEQUENCE_HEAD + index * pitch + pitch / 2;
         row.x1 = colX.get(row.from.layer);
         row.x2 = colX.get(row.to.layer);
       });
@@ -1070,8 +1110,9 @@
         layers,
         colX,
         rows,
+        pitch,
         width: Math.max(SEQUENCE_PAD * 2, layers.length * SEQUENCE_COL + SEQUENCE_PAD),
-        height: SEQUENCE_HEAD + Math.max(rows.length, 1) * SEQUENCE_ROW + SEQUENCE_PAD,
+        height: SEQUENCE_HEAD + Math.max(rows.length, 1) * pitch + SEQUENCE_PAD,
       };
     }
 
@@ -1081,7 +1122,8 @@
       const highlight = [...state.highlight].sort().join("\n");
       const layers = [...state.layers].sort().join("\n");
       const pace = [...state.latencyMedians.entries()].map(([key, ms]) => `${key}:${Math.round(ms)}`).sort().join("\n");
-      return `${nodes}|${edges}|${highlight}|${layers}|${state.hover}|${state.focus}|${state.showNames}|${pace}`;
+      const values = visibleNodes().map((node) => `${node.nodeKey}:${playheadValue(node.nodeKey)}`).join("\n");
+      return `${nodes}|${edges}|${highlight}|${layers}|${state.hover}|${state.focus}|${state.showNames}|${state.showValues}|${pace}|${values}`;
     }
 
     function sequenceNeighbours() {
@@ -1168,14 +1210,31 @@
 
     function refreshLatency() {
       const at = cutoff();
+      const derivedKey = `${state.epoch}:${at == null ? "end" : at}`;
+      const layers = [...state.layers].sort().join(",");
+      const highlight = [...state.highlight].sort().join(",");
+      const latencyKey = `${derivedKey}|${state.scope}|${state.selected}|${state.query}|${state.hideAssets ? 1 : 0}|${layers}|${highlight}`;
+      if (derivedKey === state.derivedKey && latencyKey === state.latencyKey) return;
+      const rebuildValues = derivedKey !== state.derivedKey;
+      const counts = rebuildValues ? new Map() : state.reachedCounts;
+      const latest = rebuildValues ? new Map() : null;
       const arranged = buildArrangement();
       const storyByTrace = new Map(arranged.stories.map((story) => [story.trace.traceId, story]));
       const grouped = new Map();
       for (const trace of state.traces) {
         const story = storyByTrace.get(trace.traceId);
-        if (!story) continue;
         for (const span of trace.spans) {
-          if (span.kind !== "request" && span.kind !== "query") continue;
+          if (rebuildValues && (at == null || span.start <= at)) {
+            counts.set(span.nodeKey, (counts.get(span.nodeKey) || 0) + 1);
+            if (spanHasValues(span)) {
+              const when = span.end || span.start;
+              if (at == null || when <= at) {
+                const previous = latest.get(span.nodeKey);
+                if (!previous || when >= previous.when) latest.set(span.nodeKey, { when, span });
+              }
+            }
+          }
+          if (!story || (span.kind !== "request" && span.kind !== "query")) continue;
           if (span.end == null || span.end <= span.start) continue;
           if (at != null && span.end > at) continue;
           const node = state.nodes.get(span.nodeKey);
@@ -1188,6 +1247,13 @@
           grouped.set(node.nodeKey, series);
         }
       }
+      if (rebuildValues) {
+        const values = new Map();
+        for (const [key, chosen] of latest) values.set(key, captionText(chosen.span));
+        state.playheadValues = values;
+        state.reachedCounts = counts;
+        state.derivedKey = derivedKey;
+      }
       const medians = new Map();
       for (const [key, series] of grouped) {
         series.sort((left, right) => left.x - right.x || left.duration - right.duration);
@@ -1195,6 +1261,7 @@
       }
       state.latencyGroups = grouped;
       state.latencyMedians = medians;
+      state.latencyKey = latencyKey;
       updateLatencyScale();
     }
 
@@ -1410,6 +1477,18 @@
       return { stroke, width, dash, opacity: dim ? 0.18 : 1, onFinding };
     }
 
+    function valueMarkup(row) {
+      if (!state.showValues) return "";
+      const text = playheadValue(row.to.nodeKey) || playheadValue(row.from.nodeKey);
+      if (!text) return "";
+      const same = !row.edge || row.from.layer === row.to.layer;
+      const x = !row.edge || same ? row.x1 + (row.edge && same ? 11 : 0) : (row.x1 + row.x2) / 2;
+      const y = row.y + 16;
+      const width = Math.max(24, text.length * 6.2);
+      return `<g><rect x="${x - width / 2 - 4}" y="${y - 11}" width="${width + 8}" height="14" rx="3" fill="#12161ce6" />` +
+        `<text x="${x}" y="${y}" text-anchor="middle" fill="#f0d7a2" font-size="11">${escapeText(text)}</text></g>`;
+    }
+
     function sequenceMarkup(model) {
       const neighbours = sequenceNeighbours();
       const flagged = state.highlight.size > 0;
@@ -1432,18 +1511,19 @@
           ? ` ${row.edge.followed}/${row.from.count}`
           : "";
         const label = escapeText(`${shortName(row.to.name, expanded)}${count}${partial}`);
+        const value = valueMarkup(row);
         const colour = ink.onFinding ? "#ff5c5c" : (LAYER_COLOR[row.to.layer] || "#ddd");
         const same = row.from.layer === row.to.layer;
         let shape = "";
         if (!row.edge) {
           const fill = row.key === state.focus || row.from.nodeKey === state.focus || ink.onFinding ? ink.stroke : colour;
           shape = `<rect x="${row.x1 - 5}" y="${row.y - 7}" width="10" height="14" rx="3" fill="${fill}" />` +
-            `<text x="${row.x1}" y="${row.y - 12}" text-anchor="middle" fill="${ink.onFinding ? "#ffd0d0" : "#e8e4da"}" font-size="11">${label}</text>`;
+            `<text x="${row.x1}" y="${row.y - 12}" text-anchor="middle" fill="${ink.onFinding ? "#ffd0d0" : "#e8e4da"}" font-size="11">${label}</text>${value}`;
         } else if (same) {
           const reach = 22;
           shape = `<path d="M ${row.x1} ${row.y - 6} H ${row.x1 + reach} V ${row.y + 6} H ${row.x1}" fill="none" stroke="${ink.stroke}" stroke-width="${ink.width}" stroke-dasharray="${ink.dash}" />` +
             `<polygon points="${row.x1},${row.y + 6} ${row.x1 + 7},${row.y + 2.5} ${row.x1 + 7},${row.y + 9.5}" fill="${ink.stroke}" />` +
-            `<text x="${row.x1}" y="${row.y - 12}" text-anchor="middle" fill="${ink.onFinding ? "#ffd0d0" : "#e8e4da"}" font-size="11">${label}</text>`;
+            `<text x="${row.x1}" y="${row.y - 12}" text-anchor="middle" fill="${ink.onFinding ? "#ffd0d0" : "#e8e4da"}" font-size="11">${label}</text>${value}`;
         } else {
           const direction = row.x2 >= row.x1 ? 1 : -1;
           const end = row.x2 - direction * 8;
@@ -1451,7 +1531,7 @@
           shape = `<circle cx="${row.x1}" cy="${row.y}" r="3.2" fill="${ink.onFinding ? "#ff5c5c" : (LAYER_COLOR[row.from.layer] || "#ddd")}" />` +
             `<path d="M ${row.x1} ${row.y} H ${end}" fill="none" stroke="${ink.stroke}" stroke-width="${ink.width}" stroke-dasharray="${ink.dash}" />` +
             `<polygon points="${row.x2},${row.y} ${row.x2 - direction * 8},${row.y - 3.6} ${row.x2 - direction * 8},${row.y + 3.6}" fill="${ink.stroke}" />` +
-            `<text x="${mid}" y="${row.y - 6}" text-anchor="middle" fill="${ink.onFinding ? "#ffd0d0" : "#e8e4da"}" font-size="11">${label}</text>`;
+            `<text x="${mid}" y="${row.y - 6}" text-anchor="middle" fill="${ink.onFinding ? "#ffd0d0" : "#e8e4da"}" font-size="11">${label}</text>${value}`;
         }
         return `<g opacity="${ink.opacity}">${shape}</g>`;
       }).join("");
@@ -1490,7 +1570,7 @@
       if (!model) return "";
       const world = sequenceWorld(event);
       let found = "";
-      let best = SEQUENCE_ROW / 2;
+      let best = (model.pitch || SEQUENCE_ROW) / 2;
       for (const row of model.rows) {
         const distance = Math.abs(world.y - row.y);
         if (distance > best) continue;
@@ -1513,9 +1593,10 @@
       const width = Math.max(64, model.width);
       const k = sequenceScale(rect, width);
       const viewHeight = rect.height / k;
-      const top = first == null ? 0 : Math.max(0, SEQUENCE_HEAD + first * SEQUENCE_ROW - 12);
-      const bottom = last == null ? model.height : SEQUENCE_HEAD + (last + 1) * SEQUENCE_ROW + 16;
-      const height = Math.max(SEQUENCE_ROW, bottom - top);
+      const pitch = model.pitch || SEQUENCE_ROW;
+      const top = first == null ? 0 : Math.max(0, SEQUENCE_HEAD + first * pitch - 12);
+      const bottom = last == null ? model.height : SEQUENCE_HEAD + (last + 1) * pitch + 16;
+      const height = Math.max(pitch, bottom - top);
       state.sequenceCamera.k = k;
       state.sequenceCamera.x = width / 2;
       state.sequenceCamera.y = height <= viewHeight ? top + height / 2 : top + viewHeight / 2;
@@ -1550,9 +1631,14 @@
       const viewHeight = rect.height / k;
       const lastY = model.rows.length ? model.rows[model.rows.length - 1].y + SEQUENCE_ROW : model.height / 2;
       const targetY = Math.max(viewHeight / 2, lastY - viewHeight / 2 + SEQUENCE_ROW);
-      state.sequenceCamera.x += (width / 2 - state.sequenceCamera.x) * 0.12;
-      state.sequenceCamera.y += (targetY - state.sequenceCamera.y) * 0.12;
-      state.sequenceCamera.k += (k - state.sequenceCamera.k) * 0.12;
+      const dx = width / 2 - state.sequenceCamera.x;
+      const dy = targetY - state.sequenceCamera.y;
+      const dk = k - state.sequenceCamera.k;
+      if (Math.hypot(dx, dy) < 0.6 && Math.abs(dk) < 0.02) return false;
+      state.sequenceCamera.x += dx * 0.12;
+      state.sequenceCamera.y += dy * 0.12;
+      state.sequenceCamera.k += dk * 0.12;
+      return true;
     }
 
     function frameSequenceFocus() {
@@ -1648,6 +1734,7 @@
         b.vx -= (dx / distance) * force;
         b.vy -= (dy / distance) * force;
       }
+      let moving = false;
       for (const node of nodes) {
         if (state.drag === node.nodeKey) continue;
         node.vx += -node.x * 0.01;
@@ -1661,6 +1748,63 @@
         }
         node.x += node.vx;
         node.y += node.vy;
+        if (Math.hypot(node.vx, node.vy) > 0.2) moving = true;
+      }
+      return moving;
+    }
+
+    function forceLimit() {
+      return state.scope === "trace" ? FORCE_LIMIT.trace : FORCE_LIMIT.all;
+    }
+
+    function placeColumns(nodes) {
+      const buckets = new Map(LAYERS.map(([id]) => [id, []]));
+      for (const node of nodes) {
+        const bucket = buckets.get(node.layer) || buckets.get("api");
+        bucket.push(node);
+      }
+      const pitch = 240;
+      const origin = -((LAYERS.length - 1) * pitch) / 2;
+      LAYERS.forEach(([id], index) => {
+        const bucket = buckets.get(id) || [];
+        bucket.sort((left, right) =>
+          (state.seenAt.get(left.nodeKey) || 0) - (state.seenAt.get(right.nodeKey) || 0) || left.name.localeCompare(right.name));
+        const x = origin + index * pitch;
+        bucket.forEach((node, row) => {
+          if (state.drag === node.nodeKey) return;
+          node.x = x;
+          node.y = (row - (bucket.length - 1) / 2) * 42;
+          node.vx = 0;
+          node.vy = 0;
+          state.laidOut.add(node.nodeKey);
+        });
+      });
+    }
+
+    function arrangeGraph() {
+      const nodes = visibleNodes();
+      const mode = nodes.length > forceLimit() ? "columns" : "force";
+      const layout = `${mode}:${nodes.map((node) => node.nodeKey).join("\n")}`;
+      if (layout !== state.layoutKey) {
+        const enteredColumns = mode === "columns" && !state.layoutKey.startsWith("columns:");
+        state.layoutKey = layout;
+        state.awake = mode === "force";
+        state.awakeFrames = 0;
+        if (mode === "columns") placeColumns(nodes);
+        if (enteredColumns && !state.drag && !state.playing) requestAnimationFrame(fitCurrent);
+      }
+      if (mode === "columns" || (state.drag && state.drag !== "pan")) return;
+      if (!state.awake) return;
+      settleNewNodes();
+      state.awakeFrames += 1;
+      const moving = stepPhysics();
+      if (!moving || state.awakeFrames > 240) {
+        state.awake = false;
+        state.awakeFrames = 0;
+        for (const node of nodes) {
+          node.vx = 0;
+          node.vy = 0;
+        }
       }
     }
 
@@ -1696,15 +1840,8 @@
     }
 
     function reachedRuns() {
-      const at = cutoff();
-      const counts = new Map();
-      for (const trace of state.traces) {
-        for (const span of trace.spans) {
-          if (at != null && span.start > at) continue;
-          counts.set(span.nodeKey, (counts.get(span.nodeKey) || 0) + 1);
-        }
-      }
-      return counts;
+      refreshLatency();
+      return state.reachedCounts;
     }
 
     function nodeRadius(runs) {
@@ -1716,17 +1853,22 @@
       const rect = canvas.getBoundingClientRect();
       context.clearRect(0, 0, rect.width, rect.height);
       const nodes = visibleNodes();
-      const keys = new Set(nodes.map((node) => node.nodeKey));
+      const edges = visibleEdges();
+      const linked = new Set();
+      for (const edge of edges) {
+        linked.add(edge.from);
+        linked.add(edge.to);
+      }
       const neighbours = new Set();
       if (state.hover) {
         neighbours.add(state.hover);
-        for (const edge of visibleEdges()) {
+        for (const edge of edges) {
           if (edge.from === state.hover) neighbours.add(edge.to);
           if (edge.to === state.hover) neighbours.add(edge.from);
         }
       }
       const flagged = state.highlight.size > 0;
-      for (const edge of visibleEdges()) {
+      for (const edge of edges) {
         const a = state.nodes.get(edge.from);
         const b = state.nodes.get(edge.to);
         if (!a || !b) continue;
@@ -1765,11 +1907,15 @@
         context.lineTo(to.x, to.y);
         context.stroke();
         context.setLineDash([]);
+        if (state.showValues) {
+          const caption = playheadValue(edge.to) || playheadValue(edge.from);
+          if (caption) drawValueCaption(caption, (from.x + to.x) / 2, (from.y + to.y) / 2 - 10, hot ? 1 : 0.35);
+        }
       }
       const reached = reachedRuns();
+      let radiiSettled = true;
       const ordered = [...nodes].sort((left, right) => Number(left.nodeKey === state.focus) - Number(right.nodeKey === state.focus));
       for (const node of ordered) {
-        if (!keys.has(node.nodeKey)) continue;
         const point = toScreen(node.x, node.y);
         const onFinding = state.highlight.has(node.nodeKey);
         const selected = node.nodeKey === state.focus;
@@ -1778,6 +1924,7 @@
         if (node.drawnRadius == null) node.drawnRadius = target;
         else node.drawnRadius += (target - node.drawnRadius) * 0.08;
         if (Math.abs(target - node.drawnRadius) < 0.2) node.drawnRadius = target;
+        else radiiSettled = false;
         const radius = node.drawnRadius;
         context.globalAlpha = dim ? 0.18 : 1;
         context.fillStyle = onFinding ? "#ff5c5c" : (LAYER_COLOR[node.layer] || "#ddd");
@@ -1795,8 +1942,13 @@
           context.font = "11px ui-sans-serif, system-ui, sans-serif";
           context.fillText(node.name, point.x + radius + 4, point.y + 3);
         }
+        if (state.showValues && !linked.has(node.nodeKey)) {
+          const value = playheadValue(node.nodeKey);
+          if (value) drawValueCaption(value, point.x, point.y + radius + 16, dim ? 0.35 : 1);
+        }
         context.globalAlpha = 1;
       }
+      state.radiiSettled = radiiSettled;
     }
 
     function hit(x, y) {
@@ -1829,6 +1981,80 @@
       return `${everyWord} · ${someWord}`;
     }
 
+    function recordedValues(node) {
+      const at = cutoff();
+      const lines = [];
+      for (const trace of state.traces) {
+        for (const span of trace.spans) {
+          if (span.nodeKey !== node.nodeKey) continue;
+          const when = span.end || span.start;
+          if (at != null && when > at) continue;
+          const parts = [];
+          if (span.pathParams) parts.push(`path ${formatRecorded(span.pathParams)}`);
+          if (span.query) parts.push(`query ${formatRecorded(span.query)}`);
+          if (span.parameters) parts.push(`parameters ${formatRecorded(span.parameters)}`);
+          if (span.rows) parts.push(`rows ${formatRecorded(span.rows)}`);
+          if (span.state != null && span.state !== "") parts.push(`state ${formatRecorded(span.state)}`);
+          if (parts.length) lines.push(parts.join(" · "));
+        }
+      }
+      if (!lines.length) return "";
+      const shown = lines.slice(-4);
+      const earlier = lines.length - shown.length;
+      const more = earlier ? `\n${earlier} earlier ${earlier === 1 ? "run" : "runs"} omitted` : "";
+      return `\n${shown.join("\n")}${more}`;
+    }
+
+    function formatRecorded(value) {
+      if (Array.isArray(value)) return value.map(formatRecorded).join(", ");
+      if (value && typeof value === "object") {
+        return Object.entries(value).map(([key, item]) => `${key}=${formatRecorded(item)}`).join(", ");
+      }
+      return String(value);
+    }
+
+    function drawValueCaption(text, x, y, alpha) {
+      context.save();
+      context.globalAlpha = alpha;
+      context.font = "11px ui-sans-serif, system-ui, sans-serif";
+      context.textAlign = "center";
+      context.textBaseline = "middle";
+      let width = state.captionWidths.get(text);
+      if (width == null) {
+        width = context.measureText(text).width;
+        state.captionWidths.set(text, width);
+      }
+      context.fillStyle = "#12161ce6";
+      context.fillRect(x - width / 2 - 5, y - 8, width + 10, 16);
+      context.fillStyle = "#f0d7a2";
+      context.fillText(text, x, y);
+      context.restore();
+    }
+
+    function spanHasValues(span) {
+      return span.parameters || span.query || span.pathParams || span.rows || (span.state != null && span.state !== "");
+    }
+
+    function captionText(span) {
+      const parts = [];
+      if (span.pathParams) parts.push(formatRecorded(span.pathParams));
+      if (span.query) parts.push(formatRecorded(span.query));
+      if (span.parameters) parts.push(formatRecorded(span.parameters));
+      if (span.rows) parts.push(formatRecorded(span.rows));
+      if (span.state != null && span.state !== "") parts.push(formatRecorded(span.state));
+      const text = parts.join(" · ");
+      return text.length > 48 ? `${text.slice(0, 47)}…` : text;
+    }
+
+    function playheadValue(nodeKey) {
+      refreshLatency();
+      return state.playheadValues.get(nodeKey) || "";
+    }
+
+    function valuesAreRecorded() {
+      return state.traces.some((trace) => trace.spans.some(spanHasValues));
+    }
+
     function showTip(node, clientX, clientY) {
       if (!node) {
         tip.style.display = "none";
@@ -1847,7 +2073,7 @@
       const pace = state.latencyMedians.get(node.nodeKey);
       const runs = state.latencyGroups.get(node.nodeKey);
       const timing = pace == null || !runs ? "" : `\nmedian ${formatDuration(pace)} · ${runs.length === 1 ? "1 run" : `${runs.length} runs`}`;
-      tip.textContent = `${node.name}\n${service}${LAYER_LABEL[node.layer] || node.layer} · ${node.kind} · seen ${times}\n${detail}${timing}`;
+      tip.textContent = `${node.name}\n${service}${LAYER_LABEL[node.layer] || node.layer} · ${node.kind} · seen ${times}\n${detail}${timing}${recordedValues(node)}`;
     }
 
     function fit(nodes) {
@@ -1885,20 +2111,30 @@
     }
 
     function easeTowardFocus() {
-      if (state.drag) return;
+      if (state.drag) return false;
       const node = state.nodes.get(state.focus);
-      if (!node) return;
-      state.camera.x += (node.x - state.camera.x) * 0.2;
-      state.camera.y += (node.y - state.camera.y) * 0.2;
-      state.camera.k += (1.15 - state.camera.k) * 0.12;
+      if (!node) return false;
+      const dx = node.x - state.camera.x;
+      const dy = node.y - state.camera.y;
+      const dk = 1.15 - state.camera.k;
+      if (Math.hypot(dx, dy) < 0.6 && Math.abs(dk) < 0.02) return false;
+      state.camera.x += dx * 0.2;
+      state.camera.y += dy * 0.2;
+      state.camera.k += dk * 0.12;
+      return true;
     }
 
     function easeCamera() {
       const target = frameTarget();
-      if (!target || state.drag) return;
-      state.camera.x += (target.x - state.camera.x) * 0.12;
-      state.camera.y += (target.y - state.camera.y) * 0.12;
-      state.camera.k += (target.k - state.camera.k) * 0.12;
+      if (!target || state.drag) return false;
+      const dx = target.x - state.camera.x;
+      const dy = target.y - state.camera.y;
+      const dk = target.k - state.camera.k;
+      if (Math.hypot(dx, dy) < 0.6 && Math.abs(dk) < 0.02) return false;
+      state.camera.x += dx * 0.12;
+      state.camera.y += dy * 0.12;
+      state.camera.k += dk * 0.12;
+      return true;
     }
 
     function settleNewNodes() {
@@ -1923,6 +2159,21 @@
       }
     }
 
+    function traceStamp() {
+      let spans = 0;
+      let last = 0;
+      let findingMark = 0;
+      for (const trace of state.traces) {
+        spans += trace.spans.length;
+        for (const span of trace.spans) {
+          const when = span.end || span.start || 0;
+          if (when > last) last = when;
+        }
+      }
+      for (const finding of state.findings) findingMark += (finding.at || 0) + (finding.detail || "").length;
+      return `${spans}:${last}:${state.nodes.size}:${state.edges.length}:${findingMark}`;
+    }
+
     async function refresh() {
       const [traces, graph, findings] = await Promise.all([
         fetch("/v1/traces").then((response) => response.json()),
@@ -1931,6 +2182,8 @@
       ]);
       state.traces = traces.traces;
       state.findings = findings.findings;
+      state.arrangement = null;
+      state.cutoffToken = "";
       syncHighlight();
       const listed = listedTraces();
       const selectedBefore = state.selected;
@@ -1944,6 +2197,15 @@
       const visibleBefore = new Set(visibleNodes().map((node) => node.nodeKey));
       syncGraph(graph);
       state.sourceNote = typeof graph.sourceNote === "string" ? graph.sourceNote : "";
+      const stamp = traceStamp();
+      if (stamp !== state.traceStamp) {
+        state.traceStamp = stamp;
+        state.epoch += 1;
+        state.derivedKey = "";
+        state.latencyKey = "";
+        state.cutoffToken = "";
+        state.arrangement = null;
+      }
       const grew = visibleNodes().some((node) => !visibleBefore.has(node.nodeKey));
       if ((grew || state.selected !== selectedBefore) && !state.drag && !state.playing) requestAnimationFrame(fitCurrent);
       const nodes = visibleNodes().length;
@@ -1961,7 +2223,11 @@
         : `${listedTraces().length} traces · ${nodes} nodes · ${edges} links on the graph.`;
       const read = declared ? ` ${declared} read from source.` : "";
       const note = state.sourceNote ? ` ${state.sourceNote}` : "";
-      const picture = `${base}${read}${note}`;
+      const values = valuesAreRecorded() ? " Parameter values are being recorded." : "";
+      const columns = state.view === "graph" && nodes > forceLimit()
+        ? " The dots sit in columns because this picture is past the force layout."
+        : "";
+      const picture = `${base}${read}${note}${values}${columns}`;
       if (state.playing) return `Playing. The picture matches the playhead. ${picture}`;
       if (state.cursor != null) return `Set to the playhead. ${picture}`;
       return picture;
@@ -2219,6 +2485,15 @@
       state.highlight = new Set();
       state.live = true;
       state.sourceNote = "";
+      state.epoch += 1;
+      state.traceStamp = "";
+      state.derivedKey = "";
+      state.latencyKey = "";
+      state.cutoffToken = "";
+      state.arrangement = null;
+      state.layoutKey = "";
+      state.awake = false;
+      state.inputStamp = "";
       stopPlayback(true);
       document.getElementById("live").setAttribute("aria-pressed", "true");
       renderTraces();
@@ -2231,14 +2506,15 @@
     const HELP = {
       traces: "Each row is one story: a click or a job, and everything that shared its trace. Select a row to hold that story still. That turns Live off.",
       timeline: "The ruler is the whole recording, with the long pauses between clicks taken out so the clips sit together. The orange line is the playhead. Press restart to jump to the start, like skip back in a music player. Press the round play control to walk forward, and press it again to pause. Drag the ruler or the playhead triangle to an exact moment. Clips that have not happened yet stay hidden. This trace, Hide assets and the layer buttons can narrow the picture. Live parks the playhead at the end.",
-      "view-graph": "Each dot is something that ran. A line means one thing caused or contained another.",
-      "view-sequence": "Sequence draws the same things in time order, with a column for each part of the stack.",
+      "view-graph": "Each dot is something that ran. A line means one thing caused or contained another. Values, when on, writes the playhead run halfway along each line.",
+      "view-sequence": "Sequence draws the same things in time order, with a column for each part of the stack. Values, when on, writes the playhead run halfway along each message.",
       "view-latency": "Each point is one finished run of a request or query. The line joins later runs of that same request, so a rise means it took longer. There is one line per request. The vertical axis covers those runs, in decades. Click a point to select that request in the graph and the sequence diagram.",
-      graph: "Each dot is something that ran. It starts small and grows each time that thing runs again, up to the playhead. Once the playhead has reached it, the dot stays while playback moves forward. A line means one event recorded that it happened inside another, or because of another. A click is the cause of the browser call that follows it. Hover that click to count what followed it. After a second press, the count splits into every time and some of the time. A request that carried another request's span id is the cause of that next hop. A line into a finished request or query takes its colour from that request's median duration, up to the playhead. Under 50 ms stays cool, a few hundred milliseconds turns warm, and around a second is hot. Thickness still follows the count. A rose line is duplicated work with no measured duration. A dashed line was read from the application source, and it appears only when both ends have already run. Sharing a trace does not draw a line, so jobs and worker can be in the same story with nothing joining them. Drag the background to move around, scroll to zoom, and drag a dot to pin it. Hover a dot to see what it connects to. Names starts off. Sequence and Latency switch this panel without clearing the filters.",
+      graph: "Each dot is something that ran. It starts small and grows each time that thing runs again, up to the playhead. Once the playhead has reached it, the dot stays while playback moves forward. A line means one event recorded that it happened inside another, or because of another. A click is the cause of the browser call that follows it. Hover that click to count what followed it. After a second press, the count splits into every time and some of the time. A request that carried another request's span id is the cause of that next hop. A line into a finished request or query takes its colour from that request's median duration, up to the playhead. Under 50 ms stays cool, a few hundred milliseconds turns warm, and around a second is hot. Thickness still follows the count. A rose line is duplicated work with no measured duration. A dashed line was read from the application source, and it appears only when both ends have already run. Sharing a trace does not draw a line, so jobs and worker can be in the same story with nothing joining them. Drag the background to move around, scroll to zoom, and drag a dot to pin it. Hover a dot to see what it connects to. Names starts off. Sequence and Latency switch this panel without clearing the filters. This trace keeps pushing dots apart up to 250 of them, and All activity up to 120. Past that the dots sit in columns by layer, in the order they first ran. A settled picture rests until the playhead, the filters or a new event changes it. Dragging a dot moves that dot only.",
       names: "Shows the full name beside every dot, the full name on every sequence message, and the name of every latency line, including while a finding is open. It starts off. With it off, hovering a dot still names that dot and every dot joined to it. Sequence messages keep a short name either way.",
+      values: "Shows recorded values halfway along each line, on the graph and on the sequence diagram. The caption is that run at the playhead, in the same gold label in both views. A dot with no line shows the label beside it. Values starts on. Turn it off to leave the lines clear. Hovering a dot still lists the values.",
       search: "Type part of a name to hide dots that do not match, and their latency lines. Clear the box to show them again.",
       live: "Follows whatever just happened and recentres the picture. Choosing a trace in the list turns this off. Press it again to follow the newest story.",
-      scope: "This trace shows only the story selected on the left, plus anything already joined to it by a line. All activity shows every story from this session. Press Fit if the extra dots sit outside the view. Hide assets is on by default, so many of those extra dots stay hidden.",
+      scope: "This trace shows only the story selected on the left, plus anything already joined to it by a line. All activity shows every story from this session. This trace keeps the force layout up to 250 dots, and All activity up to 120. Past that the dots sit in columns. Press Fit if the extra dots sit outside the view. Hide assets is on by default, so many of those extra dots stay hidden.",
       layers: "Each button hides or shows dots from that part of the stack. They all start on.",
       assets: "Hides files Next.js loads just to draw the page: names containing /_next/ or webpack. It starts on. Turn it off to see those files, then press Fit.",
       fit: "Recentres and zooms so everything currently shown fits on the screen. While a finding is open, Fit frames the highlighted dots or messages. On the latency chart it shows the whole recording, or the highlighted requests while a finding is open.",
@@ -2297,6 +2573,11 @@
       event.target.setAttribute("aria-pressed", state.showNames ? "true" : "false");
     });
 
+    document.getElementById("values").addEventListener("click", (event) => {
+      state.showValues = !state.showValues;
+      event.target.setAttribute("aria-pressed", state.showValues ? "true" : "false");
+    });
+
     for (const button of document.querySelectorAll("[data-layer]")) {
       button.addEventListener("click", () => {
         const layer = button.dataset.layer;
@@ -2329,6 +2610,14 @@
       state.drag = key || "pan";
       state.focus = key;
       state.followFocus = Boolean(key);
+      if (key) {
+        state.awake = false;
+        state.awakeFrames = 0;
+        for (const node of state.nodes.values()) {
+          node.vx = 0;
+          node.vy = 0;
+        }
+      }
       canvas.classList.add("dragging");
       canvas.setPointerCapture(event.pointerId);
     });
@@ -2443,26 +2732,57 @@
       fitCurrent();
     });
     resize();
+    function inputStamp() {
+      return [
+        state.epoch,
+        state.cursor,
+        state.playing,
+        state.selected,
+        state.scope,
+        state.query,
+        state.hideAssets,
+        state.showNames,
+        state.showValues,
+        state.hover,
+        state.focus,
+        state.openFinding,
+        state.view,
+        state.live,
+        Math.round(state.camera.x * 10),
+        Math.round(state.camera.y * 10),
+        Math.round(state.camera.k * 100),
+        [...state.layers].sort().join(","),
+        [...state.highlight].sort().join(","),
+      ].join("|");
+    }
+
     function frame() {
+      const graphMoving = state.view === "graph" && (state.awake || !state.radiiSettled);
+      if (!graphMoving && !state.drag && inputStamp() === state.inputStamp) {
+        requestAnimationFrame(frame);
+        return;
+      }
       refreshLatency();
+      let easing = false;
       if (state.view === "sequence") {
-        if (state.playing && !state.drag) easeSequenceCamera();
+        if (state.playing && !state.drag) easing = easeSequenceCamera() === true;
         const signature = sequenceSignature();
         if (signature !== state.sequenceSig) {
           state.sequenceSig = signature;
           renderSequence();
-        } else if (state.playing || state.drag) {
+        } else if (easing || state.playing || state.drag) {
           applySequenceTransform();
         }
       } else if (state.view === "latency") {
         drawLatency();
       } else {
-        stepPhysics();
-        settleNewNodes();
-        if (state.playing) easeCamera();
-        else if (state.followFocus) easeTowardFocus();
+        arrangeGraph();
+        if (state.playing) easing = easeCamera();
+        else if (state.followFocus) easing = easeTowardFocus();
         draw();
       }
+      const stillMoving = easing || state.drag || (state.view === "graph" && (state.awake || !state.radiiSettled));
+      state.inputStamp = stillMoving ? "" : inputStamp();
       requestAnimationFrame(frame);
     }
     frame();

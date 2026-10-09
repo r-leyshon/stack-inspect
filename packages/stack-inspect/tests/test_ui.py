@@ -67,9 +67,59 @@ def test_page_draws_the_graph_and_traces_carry_layers(tmp_path: Path) -> None:
     assert "paint its nodes red" in page.text
     assert "#4a2424" in page.text
     assert "whole graph at that same moment" in page.text
+    assert "Parameter values are being recorded." in page.text
     assert "including while a finding is open" in page.text
     assert 'data-help="live"' in page.text
     assert "hides the status" in page.text
     span = client.get("/v1/traces").json()["traces"][0]["spans"][0]
     assert span["layer"] == "api"
     assert span["name"] == "GET /items"
+
+
+def test_page_explains_where_recorded_values_appear(tmp_path: Path) -> None:
+    """Values is one control, and both drawings put the caption halfway along the line."""
+    client = TestClient(create_app(EventLog(tmp_path / "events.db")), client=("127.0.0.1", 50000))
+    page = client.get("/")
+    assert 'id="values" aria-pressed="true">Values' in page.text
+    assert "halfway along each line" in page.text
+    assert "halfway along each message" in page.text
+
+
+def test_page_rests_a_large_graph(tmp_path: Path) -> None:
+    """A single story keeps the force layout longer than the whole session."""
+    client = TestClient(create_app(EventLog(tmp_path / "events.db")), client=("127.0.0.1", 50000))
+    page = client.get("/")
+    assert "const FORCE_LIMIT = { trace: 250, all: 120 }" in page.text
+    assert "sit in columns" in page.text
+    assert "moves that dot only" in page.text
+
+
+def test_traces_include_recorded_parameters(tmp_path: Path) -> None:
+    """Opted-in parameter values travel with the span, and stay off the graph node."""
+    log = EventLog(tmp_path / "events.db")
+    log.append(
+        {
+            "id": "q1",
+            "traceId": "trace",
+            "nodeKey": "db:query:items",
+            "kind": "query",
+            "layer": "db",
+            "phase": "instant",
+            "name": "select name from items where id = $1",
+            "ts": 1,
+            "attributes": {
+                "parameters": ["synthetic-id"],
+                "rows": [{"name": "Widget"}],
+                "state": [4],
+                "statement": "select name from items where id = $1",
+            },
+        },
+    )
+    client = TestClient(create_app(log), client=("127.0.0.1", 50000))
+    span = client.get("/v1/traces").json()["traces"][0]["spans"][0]
+    assert span["parameters"] == ["synthetic-id"]
+    assert span["rows"] == [{"name": "Widget"}]
+    assert span["state"] == [4]
+    node = client.get("/v1/graph").json()["nodes"][0]
+    assert "parameters" not in node
+    assert "synthetic-id" not in str(node)
