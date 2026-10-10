@@ -53,7 +53,7 @@ flowchart TB
 | Graph projector | Turns the event log into graphs and runs the analysis rules. |
 | UI | Three linked views on one page: a timeline whose lanes are the browser, Next.js, the API and the database; a picture of the accumulated graph; and findings that open into an explanation of what was observed. The graph panel toggles between a drawing of the graph, a sequence diagram, and a latency chart of the same visible nodes. The drawing pushes dots apart for This trace up to 250 visible dots and for All activity up to 120. Above those counts the dots sit in layer columns, ordered by when they were first seen. The simulation stops once the dots are still, and dragging a dot moves that dot only. Captions, run counts and latency medians are computed when the playhead or the log changes, and a settled picture stays unpainted until the playhead, the filters, the camera or a new event changes it. The sequence diagram has one column per layer, and each link is a message in the order it was first seen. The latency chart draws one line per finished request or query on the same clock as the timeline. Its vertical axis is a log scale fitted to the runs at the playhead, in decades, and it grows as the playhead moves forward. A callout on the chart says these are development times and include the wait while the API and the database post each event to the collector. The adapters do not start in production. A line on the graph or the sequence diagram that ends on a finished request takes its colour from that request's median duration. Filters, the playhead and findings apply to all three, and only the drawing on screen is painted. The timeline is one arrangement of the whole recording. Long pauses between clicks are shortened so the clips sit together, and each story keeps its own order. Play starts from the beginning and the picture grows up to the playhead. A dot starts small and grows each time that thing runs again, up to the playhead. Dragging the ruler or the playhead sets the moment. The graph controls can narrow that picture further. |
 
-The collector choice is recorded in [ADR 0002](adr/0002-local-collector.md).
+The collector choice is recorded in [ADR 0002](adr/0002-local-collector.md). The same process answers read-only questions at `/mcp` ([ADR 0019](adr/0019-mcp-on-the-collector.md)).
 
 ## 3. Graph model
 
@@ -200,6 +200,7 @@ Work repositories install the adapters as development dependencies, and audit th
 | :-- | :-- | :-- |
 | `fastapi` >= 0.115 | Collector `serve` extra | Serves the collector's HTTP API and the UI page. |
 | `uvicorn` >= 0.34 | Collector `serve` extra | Runs that process. |
+| `mcp` >= 1.10 | Collector | Read-only questions over the same graph, findings and report. |
 | `react` >= 18 | `@stack-inspect/react`, as a peer dependency | The React adapter types against it. The application already has React. |
 
 **Already in the application.** These are not installed by stack-inspect. The matching adapter does nothing useful until the application has them. The database adapter patches a driver only after the application has imported it. `stack-inspect-db` offers optional extras `asyncpg` and `sqlalchemy` for a project that does not already depend on the driver.

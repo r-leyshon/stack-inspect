@@ -103,6 +103,15 @@ def test_page_rests_a_large_graph(tmp_path: Path) -> None:
     assert "moves that dot only" in page.text
 
 
+def test_page_opens_a_finding_from_the_query(tmp_path: Path) -> None:
+    """A trace and finding in the query string stay selected until the person picks another."""
+    client = TestClient(create_app(EventLog(tmp_path / "events.db")), client=("127.0.0.1", 50000))
+    page = client.get("/")
+    assert "new URLSearchParams(window.location.search)" in page.text
+    assert "pinnedTrace" in page.text
+    assert "pinnedFinding" in page.text
+
+
 def test_traces_include_recorded_parameters(tmp_path: Path) -> None:
     """Opted-in parameter values travel with the span, and stay off the graph node."""
     log = EventLog(tmp_path / "events.db")

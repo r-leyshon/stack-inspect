@@ -617,15 +617,18 @@
 
     const FORCE_LIMIT = { trace: 250, all: 120 };
 
+    const pageQuery = new URLSearchParams(window.location.search);
     const state = {
       traces: [],
       nodes: new Map(),
       edges: [],
       findings: [],
-      selected: "",
+      selected: pageQuery.get("trace") || "",
       focus: "",
       followFocus: false,
-      openFinding: "",
+      openFinding: pageQuery.get("finding") || "",
+      pinnedTrace: pageQuery.get("trace") || "",
+      pinnedFinding: pageQuery.get("finding") || "",
       highlight: new Set(),
       query: "",
       scope: "trace",
@@ -2212,12 +2215,18 @@
       syncHighlight();
       const listed = listedTraces();
       const selectedBefore = state.selected;
-      if (!state.playing && state.cursor == null && state.live && listed.length > 0) {
+      const pinned = state.pinnedTrace && listed.some((trace) => trace.traceId === state.pinnedTrace);
+      if (pinned) {
+        state.selected = state.pinnedTrace;
+      } else if (!state.playing && state.cursor == null && state.live && listed.length > 0) {
         const ranked = [...listed].sort((left, right) => latestActivity(left) - latestActivity(right));
         state.selected = ranked.at(-1)?.traceId || "";
       } else if (!listed.some((trace) => trace.traceId === state.selected)) {
         const ranked = [...listed].sort((left, right) => interest(left) - interest(right));
         state.selected = ranked.at(-1)?.traceId || "";
+      }
+      if (state.pinnedFinding && state.findings.some((finding) => findingKey(finding) === state.pinnedFinding)) {
+        state.openFinding = state.pinnedFinding;
       }
       const visibleBefore = new Set(visibleNodes().map((node) => node.nodeKey));
       syncGraph(graph);
@@ -2393,6 +2402,8 @@
     document.getElementById("traces").addEventListener("click", (event) => {
       const button = event.target.closest("button[data-trace]");
       if (!button) return;
+      state.pinnedTrace = "";
+      state.pinnedFinding = "";
       state.selected = button.dataset.trace;
       stopPlayback(true);
       state.live = false;
@@ -2428,6 +2439,8 @@
     document.getElementById("findings").addEventListener("click", (event) => {
       const button = event.target.closest("button[data-finding]");
       if (!button) return;
+      state.pinnedTrace = "";
+      state.pinnedFinding = "";
       const closing = state.openFinding === button.dataset.finding;
       state.openFinding = closing ? "" : button.dataset.finding;
       syncHighlight();
@@ -2507,6 +2520,8 @@
       state.selected = "";
       state.focus = "";
       state.openFinding = "";
+      state.pinnedTrace = "";
+      state.pinnedFinding = "";
       state.highlight = new Set();
       state.live = true;
       state.sourceNote = "";
@@ -2575,7 +2590,11 @@
 
     document.getElementById("live").addEventListener("click", (event) => {
       const follow = !state.live;
-      if (follow) stopPlayback(true);
+      if (follow) {
+        stopPlayback(true);
+        state.pinnedTrace = "";
+        state.pinnedFinding = "";
+      }
       state.live = follow;
       event.target.setAttribute("aria-pressed", state.live ? "true" : "false");
       if (state.live) refresh();

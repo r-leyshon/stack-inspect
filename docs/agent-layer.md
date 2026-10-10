@@ -1,6 +1,8 @@
 # Agentic layer
 
-**Status:** Ideation. Not scheduled, and not an architecture decision. Recorded so a later spike can start from this conversation rather than from scratch. A decision, when there is one, belongs in a new ADR.
+**Status:** The read tools are implemented ([ADR 0019](adr/0019-mcp-on-the-collector.md)). Playwright journeys, playhead control and invalidation questions are not.
+
+While `stack-inspect serve` is running, a client attaches to `http://127.0.0.1:9477/mcp`. The tools are `list_findings`, `get_finding`, `get_report`, `list_stories`, `get_graph` and `get_node_neighbourhood`. Each finding includes a link, `http://127.0.0.1:9477/?trace=…&finding=…`, and the page opens that story and that finding. A graph over the limit tells the caller to narrow the question. The tools do not clear the log, move the playhead, scan source, or turn value recording on.
 
 ## North star
 
@@ -81,7 +83,7 @@ Session control, still local and still gated:
 
 ## Where it sits
 
-The agent layer sits beside the collector, not inside the adapters. Adapters stay thin ([ADR 0011](adr/0011-minimal-runtime-dependencies.md)).
+The agent layer sits in the collector process, not inside the adapters. Adapters stay thin ([ADR 0011](adr/0011-minimal-runtime-dependencies.md)).
 
 ```text
 adapters → event log → projector and rules → UI
@@ -112,8 +114,8 @@ The graph model should already be ready for later questions. `causeIds`, `read` 
 
 ## A pragmatic ladder
 
-1. **Bundle for agents.** Finding-scoped deep links on top of `GET /v1/report` and `GET /v1/findings`. Almost free.
-2. **MCP read tools** wrapping graph, findings and report.
+1. **Bundle for agents.** Done. `?trace=` and `?finding=` open that story and that finding.
+2. **MCP read tools** wrapping graph, findings and report. Done. See the status above.
 3. **Playwright journeys that assert findings** in the reference app, alongside the existing Gherkin suite.
 4. **A short agent-loop note** in the docs: attach MCP, run a journey, triage findings, patch, re-run.
 5. **Live subscribe and UI sync.** The agent sets the playhead or highlights a finding while the human watches.
@@ -121,4 +123,4 @@ The graph model should already be ready for later questions. `causeIds`, `read` 
 
 ## First demo worth aiming at
 
-`list_findings` and `get_report` over MCP, plus one Playwright journey that plants a duplicate-fetch finding. Ask the agent what is wrong and where to look. The answer cites the finding and the node keys, and a link opens that moment in the UI.
+`list_findings` and `get_report` are available over MCP, and a finding link opens that story in the UI. A Playwright journey that plants a duplicate-fetch finding is still unbuilt.

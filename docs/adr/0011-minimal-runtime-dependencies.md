@@ -21,6 +21,7 @@ Split stack-inspect by where it gets installed:
 Additional rules:
 
 - **Adding a runtime dependency to an adapter requires a new ADR** explaining why the standard library or a peer dependency can't do the job.
+- The collector's read-only MCP server depends on the `mcp` package ([ADR 0019](0019-mcp-on-the-collector.md)). Adapters do not.
 - Integrations with optional libraries, such as OpenTelemetry instrumentation ([ADR 0002](0002-local-collector.md)) or TanStack Query, are **optional extras**, never required dependencies.
 - **No install scripts** in any npm package.
 - Releases are two assets on a GitHub Release, attested and pinned by an immutable tag ([ADR 0018](0018-github-release-assets.md)). PyPI and npm stay optional.

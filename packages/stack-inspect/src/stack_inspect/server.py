@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 from fastapi import FastAPI, Request, Response
 from fastapi.responses import HTMLResponse, JSONResponse
 
+from stack_inspect.mcp_server import attach_mcp, bind, collector_lifespan, mcp_application
 from stack_inspect.model import GraphEvent, validate_event
 from stack_inspect.projector import Span, project
 from stack_inspect.report import build_report, render_markdown
@@ -24,8 +25,7 @@ _LOOPBACK = frozenset({"127.0.0.1", "::1", "localhost"})
 
 def create_app(log: EventLog, roots: list[Path] | None = None) -> FastAPI:  # noqa: C901 # route registration is a flat list, not nested logic
     """Return the collector application bound to ``log``. Named ``roots`` are read now."""
-    app = FastAPI(title="stack-inspect", docs_url=None, redoc_url=None)
-    source = DeclaredStore(list(roots or []))
+    app, source = _collector_app(log, roots)
 
     @app.middleware("http")
     async def loopback_only(request: Request, call_next: RequestResponseEndpoint) -> Response:
@@ -172,6 +172,16 @@ def create_app(log: EventLog, roots: list[Path] | None = None) -> FastAPI:  # no
 
     source.read()
     return app
+
+
+def _collector_app(log: EventLog, roots: list[Path] | None) -> tuple[FastAPI, DeclaredStore]:
+    """Return the application, with the read-only MCP route attached."""
+    source = DeclaredStore(list(roots or []))
+    bind(log, source)
+    mcp_app = mcp_application()
+    app = FastAPI(title="stack-inspect", docs_url=None, redoc_url=None, lifespan=collector_lifespan(mcp_app))
+    attach_mcp(app, mcp_app)
+    return app, source
 
 
 def _declared_edges(events: list[GraphEvent], edges: tuple[DeclaredEdge, ...]) -> list[DeclaredEdge]:

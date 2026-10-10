@@ -87,4 +87,4 @@ Stopped. The [spike](spikes/0004-database-writes.md) found that the statement te
 
 ### Agentic layer
 
-A local MCP server over the collector, so a coding agent can ask about findings, the graph and a playhead moment, and so Playwright journeys can feed those findings back into the agent. Ideation only: [agent layer](agent-layer.md).
+The collector answers read-only questions about findings, the report and a sliced graph ([ADR 0019](adr/0019-mcp-on-the-collector.md)). Playwright journeys and playhead control are not built. See [agent layer](agent-layer.md).

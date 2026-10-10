@@ -58,6 +58,10 @@ Open <http://127.0.0.1:9477>. `--root` (or `STACK_INSPECT_ROOTS`, as a path sepa
 
 `STACK_INSPECT_SOCKET`, or `--socket`, is a Unix socket for a process that cannot use loopback TCP. The TCP listener still accepts only `127.0.0.1`.
 
+## Attach a client
+
+While `stack-inspect serve` is running, point Cursor, or any other MCP client, at `http://127.0.0.1:9477/mcp`. The tools read findings, the report and slices of the graph. They do not install adapters or start the collector. A finding reply includes a link that opens that finding in the page.
+
 ## FastAPI and the database
 
 Call the database adapter before the pool or engine is created. Call the FastAPI adapter after the application's own middleware has been added.
