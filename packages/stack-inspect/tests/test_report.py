@@ -11,9 +11,11 @@ from stack_inspect.store import EventLog
 if TYPE_CHECKING:
     from pathlib import Path
 
+    from stack_inspect.model import GraphEvent
 
-def _event(event_id: str, **overrides: object) -> dict[str, object]:
-    base: dict[str, object] = {
+
+def _event(event_id: str, **overrides: object) -> GraphEvent:
+    base: GraphEvent = {
         "id": event_id,
         "traceId": "trace-jobs",
         "nodeKey": "api:request:POST /jobs",
@@ -25,7 +27,8 @@ def _event(event_id: str, **overrides: object) -> dict[str, object]:
         "service": "jobs",
         "attributes": {},
     }
-    base.update(overrides)
+    for key, value in overrides.items():
+        base[key] = value  # type: ignore[literal-required] # test helper assigns known event fields
     return base
 
 
