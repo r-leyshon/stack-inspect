@@ -192,12 +192,26 @@ Summarised from [ADR 0006](adr/0006-development-only-guarantee.md): adapters are
 
 ## 11. Packaging and dependencies
 
-Work repositories install the adapters as development dependencies, and audit their full dependency tree at strict thresholds. So stack-inspect is split by where it gets installed ([ADR 0011](adr/0011-minimal-runtime-dependencies.md)):
+Work repositories install the adapters as development dependencies, and audit their full dependency tree at strict thresholds. So stack-inspect is split by where it gets installed ([ADR 0011](adr/0011-minimal-runtime-dependencies.md)). A release is two attested files on one GitHub tag: one Python wheel and one compiled npm tarball ([ADR 0018](adr/0018-github-release-assets.md)). Python 3.12 or newer is required.
 
-- **Adapters** go into the app's lockfile. They depend on the standard library, plus the app's own frameworks as peer or optional dependencies.
-- **Collector, graph projector and UI** run as a standalone tool (`uvx`/`npx` or a container) and never enter the app's lockfile.
+**Installed with stack-inspect.** The adapter packages depend on `stack-inspect-core` or `@stack-inspect/core` and on nothing else from PyPI or npm. The collector is the exception, and it stays out of the application lockfile. `uvx` installs it with the `serve` extra.
 
-Optional integrations, such as OpenTelemetry instrumentation or TanStack Query, are optional extras.
+| Package | Required by | Role |
+| :-- | :-- | :-- |
+| `fastapi` >= 0.115 | Collector `serve` extra | Serves the collector's HTTP API and the UI page. |
+| `uvicorn` >= 0.34 | Collector `serve` extra | Runs that process. |
+| `react` >= 18 | `@stack-inspect/react`, as a peer dependency | The React adapter types against it. The application already has React. |
+
+**Already in the application.** These are not installed by stack-inspect. The matching adapter does nothing useful until the application has them. The database adapter patches a driver only after the application has imported it. `stack-inspect-db` offers optional extras `asyncpg` and `sqlalchemy` for a project that does not already depend on the driver.
+
+| Package | Used by |
+| :-- | :-- |
+| Next.js | The Next.js adapter, through `instrumentation.ts` and middleware. The adapter does not declare a dependency on `next`. |
+| FastAPI or Starlette | The FastAPI adapter. It does not import FastAPI. |
+| `asyncpg` >= 0.30, or SQLAlchemy >= 2 | The database adapter. One of them is enough. |
+| PostgreSQL | The application's database. The collector does not connect to it. |
+| `typescript` | The fetch scan of a web root, loaded from that application. With no `typescript` package, that scan is skipped. The Python source scan does not need it. |
+| TanStack Query | Only when the application calls `observeQueryClient`. stack-inspect does not depend on `@tanstack/react-query`. |
 
 ## 12. Quality and security
 

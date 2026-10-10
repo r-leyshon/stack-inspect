@@ -61,7 +61,7 @@ stack-inspect's adapters are installed as development dependencies in work repos
 - **Adapters have as few runtime dependencies as possible.** The standard library first. Framework packages (React, Next.js, Starlette/FastAPI, database drivers) are peer or optional dependencies, never pinned by us.
 - **The collector and UI are distributed as a standalone tool**, run with `uvx`/`npx` or a container. Their heavier dependencies never enter a work lockfile.
 - **No install scripts**: no `postinstall` or similar lifecycle scripts in any npm package.
-- **Publishing with provenance**: PyPI Trusted Publishing with attestations, and npm trusted publishing with provenance. An SBOM is attached to each release.
+- **Publishing with provenance**: two attested assets on a GitHub Release, with an SBOM on the same release ([ADR 0018](adr/0018-github-release-assets.md)). PyPI and npm stay optional.
 - **Our own vulnerabilities are published as GitHub security advisories.** A consumer's Renovate only skips the 14-day wait when there's an advisory to match, so without one our fix would wait two weeks to reach work repositories.
 - **Release timing:** routine releases take at least 14 days to reach work repositories because of the Renovate wait, plus 72 hours for the CI install guard. Plan fixes accordingly.
 

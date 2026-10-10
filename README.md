@@ -22,27 +22,7 @@ A second app at <http://127.0.0.1:8010> is a jobs API plus a worker process. **R
 
 ## Use it in an application
 
-Set `STACK_INSPECT=1` and run the collector (`uv run stack-inspect serve`). Then, in development only:
-
-```python
-import stack_inspect_db
-import stack_inspect_fastapi
-
-stack_inspect_db.install()
-stack_inspect_fastapi.install(app)
-```
-
-```ts
-import { register } from "@stack-inspect/next";
-import { install as installBrowser } from "@stack-inspect/browser";
-import { install as installReact, devtoolsHookSource } from "@stack-inspect/react";
-```
-
-The adapters do nothing unless `STACK_INSPECT=1`, and they refuse to start when `NODE_ENV` is `production`. Set `STACK_INSPECT_VALUES=1` as well to record SQL arguments, a short preview of query rows, request path and query parameters, and the React state value that changed. The browser also reads `NEXT_PUBLIC_STACK_INSPECT_VALUES`. Bodies, cookies and tokens stay out, and the reference stack does not set this flag.
-
-Name a process with `STACK_INSPECT_SERVICE` (for example `api` or `worker`) so the timeline can tell processes apart. To follow a trace through a queue or any other message, copy `inject()` into the map you already send, and `extract()` it where the message is received. `STACK_INSPECT_SOCKET` posts events through a Unix socket for processes that cannot use loopback TCP; the collector still refuses any other TCP client.
-
-`install()` on the page also records IndexedDB and Origin Private File System calls: the store or path, the operation, and a byte count. Values and file contents are not recorded. A worker calls `installStorage()`, and `adoptTrace(traceparent)` when it was given a trace to continue.
+The setup page is [`docs/setup.md`](docs/setup.md): what to install, which environment variables the server and the browser each need, and the FastAPI, database, Next.js and React calls. The adapters do nothing unless `STACK_INSPECT=1`, and the page also needs `NEXT_PUBLIC_STACK_INSPECT=1`. They refuse to start in production.
 
 ## Tests
 

@@ -23,7 +23,7 @@ Additional rules:
 - **Adding a runtime dependency to an adapter requires a new ADR** explaining why the standard library or a peer dependency can't do the job.
 - Integrations with optional libraries, such as OpenTelemetry instrumentation ([ADR 0002](0002-local-collector.md)) or TanStack Query, are **optional extras**, never required dependencies.
 - **No install scripts** in any npm package.
-- Releases are published with **provenance**: PyPI Trusted Publishing with attestations, npm trusted publishing with provenance. An **SBOM** is attached to each release.
+- Releases are two assets on a GitHub Release, attested and pinned by an immutable tag ([ADR 0018](0018-github-release-assets.md)). PyPI and npm stay optional.
 - Vulnerabilities in stack-inspect itself are published as **GitHub security advisories**, so a consumer's Renovate skips the 14-day wait for our fix.
 
 ## Consequences
