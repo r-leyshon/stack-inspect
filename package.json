@@ -16,14 +16,17 @@
   "devDependencies": {
     "@biomejs/biome": "2.2.4",
     "@playwright/test": "1.55.1",
-    "playwright-bdd": "8.4.1",
+    "playwright-bdd": "9.2.1",
     "typescript": "5.9.2"
   },
   "license": "MIT",
   "overrides": {
-    "postcss": "8.5.28"
+    "postcss": "8.5.28",
+    "sharp": "0.35.5",
+    "source-map-js": "1.2.2"
   },
   "dependencies": {
-    "postcss": "8.5.28"
+    "postcss": "8.5.28",
+    "sharp": "0.35.5"
   }
 }
