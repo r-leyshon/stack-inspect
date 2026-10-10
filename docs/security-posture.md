@@ -8,6 +8,8 @@ The reference for "the same gates" is the `JusticeAIUnit/github-actions` reposit
 
 **Blocking** means the check fails CI. **Reporting** means findings go to the Security tab without failing CI, matching work.
 
+The npm audit and pip-audit checks run on pull requests, on pushes to `main`, and every day at 07:00 UTC. GitHub runs the scheduled job from the default branch.
+
 | Control | Work implementation | Work threshold | stack-inspect equivalent | Mode |
 | :-- | :-- | :-- | :-- | :-- |
 | Dependency review (pull requests only, new dependencies) | `actions/dependency-review-action` | **high** and above | Same action, `fail-on-severity: high` | Blocking |
