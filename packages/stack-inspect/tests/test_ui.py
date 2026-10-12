@@ -103,6 +103,21 @@ def test_page_rests_a_large_graph(tmp_path: Path) -> None:
     assert "moves that dot only" in page.text
 
 
+def test_page_resets_the_graph_filters(tmp_path: Path) -> None:
+    """Reset filters clears the search, the selected trace, the open finding and the focused dot."""
+    client = TestClient(create_app(EventLog(tmp_path / "events.db")), client=("127.0.0.1", 50000))
+    page = client.get("/")
+    assert 'id="reset-filters">Reset filters' in page.text
+    assert 'data-help="reset-filters"' in page.text
+    assert "Clears the name search, the selected trace, the open finding and the focused dot." in page.text
+    assert 'state.scope = "all"' in page.text
+    assert "state.hideAssets = false" in page.text
+    assert 'state.selected = ""' in page.text
+    assert 'state.openFinding = ""' in page.text
+    assert 'state.focus = ""' in page.text
+    assert "state.selected && !listed.some" in page.text
+
+
 def test_page_opens_a_finding_from_the_query(tmp_path: Path) -> None:
     """A trace and finding in the query string stay selected until the person picks another."""
     client = TestClient(create_app(EventLog(tmp_path / "events.db")), client=("127.0.0.1", 50000))

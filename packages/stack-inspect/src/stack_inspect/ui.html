@@ -555,6 +555,10 @@
           <button type="button" class="info" data-help="assets" aria-label="About Hide assets">i</button>
         </span>
         <span class="hint">
+          <button class="tool" type="button" id="reset-filters">Reset filters</button>
+          <button type="button" class="info" data-help="reset-filters" aria-label="About Reset filters">i</button>
+        </span>
+        <span class="hint">
           <button class="tool" type="button" id="names" aria-pressed="false">Names</button>
           <button type="button" class="info" data-help="names" aria-label="About Names">i</button>
         </span>
@@ -2221,7 +2225,7 @@
       } else if (!state.playing && state.cursor == null && state.live && listed.length > 0) {
         const ranked = [...listed].sort((left, right) => latestActivity(left) - latestActivity(right));
         state.selected = ranked.at(-1)?.traceId || "";
-      } else if (!listed.some((trace) => trace.traceId === state.selected)) {
+      } else if (state.selected && !listed.some((trace) => trace.traceId === state.selected)) {
         const ranked = [...listed].sort((left, right) => interest(left) - interest(right));
         state.selected = ranked.at(-1)?.traceId || "";
       }
@@ -2468,6 +2472,44 @@
       state.query = event.target.value.trim().toLowerCase();
     });
 
+    function resetFilters() {
+      state.query = "";
+      state.scope = "all";
+      state.hideAssets = false;
+      state.showNames = false;
+      state.showValues = true;
+      state.layers = new Set(["browser", "next", "api", "db"]);
+      state.selected = "";
+      state.focus = "";
+      state.followFocus = false;
+      state.hover = "";
+      state.openFinding = "";
+      state.pinnedTrace = "";
+      state.pinnedFinding = "";
+      state.highlight = new Set();
+      state.live = false;
+      document.getElementById("search").value = "";
+      const scope = document.getElementById("scope");
+      scope.setAttribute("aria-pressed", "false");
+      scope.textContent = "All activity";
+      document.getElementById("assets").setAttribute("aria-pressed", "false");
+      document.getElementById("names").setAttribute("aria-pressed", "false");
+      document.getElementById("values").setAttribute("aria-pressed", "true");
+      document.getElementById("live").setAttribute("aria-pressed", "false");
+      for (const button of document.querySelectorAll("[data-layer]")) {
+        button.setAttribute("aria-pressed", "true");
+      }
+      const address = new URL(window.location.href);
+      address.searchParams.delete("trace");
+      address.searchParams.delete("finding");
+      history.replaceState(null, "", `${address.pathname}${address.search}${address.hash}`);
+      stopPlayback(true);
+      paintPlayback();
+      fitCurrent();
+    }
+
+    document.getElementById("reset-filters").addEventListener("click", resetFilters);
+
     const exportButton = document.getElementById("export");
     const exportMenu = document.getElementById("export-menu");
 
@@ -2557,6 +2599,7 @@
       scope: "This trace shows only the story selected on the left, plus anything already joined to it by a line. All activity shows every story from this session. This trace keeps the force layout up to 250 dots, and All activity up to 120. Past that the dots sit in columns. Press Fit if the extra dots sit outside the view. Hide assets is on by default, so many of those extra dots stay hidden.",
       layers: "Each button hides or shows dots from that part of the stack. They all start on.",
       assets: "Hides files Next.js loads just to draw the page: names containing /_next/ or webpack. It starts on. Turn it off to see those files, then press Fit.",
+      "reset-filters": "Clears the name search, the selected trace, the open finding and the focused dot. Every layer is shown, Hide assets is off, Names is off and Values is on. The picture is All activity, Live is off, and the playhead sits at the end.",
       fit: "Recentres and zooms so everything currently shown fits on the screen. While a finding is open, Fit frames the highlighted dots or messages. On the latency chart it shows the whole recording, or the highlighted requests while a finding is open.",
       findings: "Notes about what looks off in a story, such as a query that ran many times. Open one to paint its nodes red, emphasise duplicated links, select its trace and turn Live off. The playhead stays where it is. The sequence diagram paints those same messages red. The latency chart keeps those requests bright and fades the rest. Click the finding again to clear the highlight and show the whole graph at that same moment.",
     };
