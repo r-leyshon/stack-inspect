@@ -6,17 +6,17 @@ Development only. The adapters do nothing unless you opt in, and they refuse to 
 
 The collector stays out of the application lockfile. The adapters are development dependencies. They do not install Next.js, React, FastAPI, asyncpg or SQLAlchemy. The application already has those.
 
-A release is two files on one GitHub tag ([ADR 0018](adr/0018-github-release-assets.md)). The wheel's base has no server dependencies. The `serve` extra, used only by `uvx`, adds them. Replace `<owner>` and `<version>` with the release you pin.
+A release is two files on one GitHub tag ([ADR 0018](adr/0018-github-release-assets.md)). The wheel's base has no server dependencies. The `serve` extra, used only by `uvx`, adds them. The first pin is `v1.0.0`.
 
 ```bash
-uvx --from "stack-inspect[serve] @ https://github.com/<owner>/stack-inspect/releases/download/v<version>/stack_inspect-<version>-py3-none-any.whl" stack-inspect serve
-uv add --dev https://github.com/<owner>/stack-inspect/releases/download/v<version>/stack_inspect-<version>-py3-none-any.whl
-npm install --save-dev https://github.com/<owner>/stack-inspect/releases/download/v<version>/stack-inspect-<version>.tgz
+uvx --from "stack-inspect[serve] @ https://github.com/r-leyshon/stack-inspect/releases/download/v1.0.0/stack_inspect-1.0.0-py3-none-any.whl" stack-inspect serve
+uv add --dev https://github.com/r-leyshon/stack-inspect/releases/download/v1.0.0/stack_inspect-1.0.0-py3-none-any.whl
+npm install --save-dev https://github.com/r-leyshon/stack-inspect/releases/download/v1.0.0/stack-inspect-1.0.0.tgz
 ```
 
 Python imports stay `stack_inspect_fastapi`, `stack_inspect_db` and `stack_inspect_core`. The npm package exports `stack-inspect/browser`, `stack-inspect/react`, `stack-inspect/next` and `stack-inspect/next/middleware`. The snippets below use the workspace names in this repository (`@stack-inspect/browser` and the rest). The wheel's database adapter still patches a driver only after the application has imported it.
 
-This checkout has not yet built those release files. Run the collector here with `uv run stack-inspect serve`.
+This checkout still runs the collector with `uv run stack-inspect serve`. A `v*` tag publishes the two files above.
 
 The JavaScript packages in this repository ship TypeScript source, so this checkout lists them in `transpilePackages`. The release tarball ships compiled JavaScript, and a consumer of that tarball can omit the list.
 

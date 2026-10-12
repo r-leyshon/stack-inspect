@@ -1,0 +1,61 @@
+# Purpose:     Publish the wheel and the npm tarball for a version tag
+# Triggers:    push of a v* tag
+# Permissions: contents write on the release job, plus attestation identity
+# Jobs:        release
+# Secrets:     none
+# Variables:   none
+
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions: {}
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version-file: .python-version
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+          package-manager-cache: false
+      - name: Install
+        run: npm ci
+      - name: Check the tag matches the package version
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          packaged="$(python -c 'import runpy; print(runpy.run_path("scripts/build_release.py")["release_version"]())')"
+          test "$version" = "$packaged"
+      - name: Build the release assets
+        run: python scripts/build_release.py
+      - uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3.0.0
+        with:
+          subject-path: |
+            dist/release/*.whl
+            dist/release/*.tgz
+            dist/release/*.cdx.json
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          gh release create "$GITHUB_REF_NAME" \
+            --title "$GITHUB_REF_NAME" \
+            --notes "Install the adapters from the attached wheel and npm tarball. The collector uses the wheel's serve extra. See docs/setup.md." \
+            "dist/release/stack_inspect-${version}-py3-none-any.whl" \
+            "dist/release/stack-inspect-${version}.tgz" \
+            "dist/release/stack-inspect-${version}.cdx.json"
