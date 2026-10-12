@@ -440,12 +440,15 @@
       position: absolute;
       z-index: 4;
       display: none;
-      max-width: 260px;
+      max-width: 28rem;
       background: #0e1116ee;
       border: 1px solid var(--line);
       border-radius: 8px;
       padding: 0.45rem 0.55rem;
       font-size: 0.75rem;
+      line-height: 1.4;
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
       pointer-events: none;
     }
     .explain { padding: 0 0.9rem 0.8rem; color: var(--muted); font-size: 0.8rem; line-height: 1.45; }
@@ -1537,12 +1540,11 @@
       const messages = model.rows.map((row) => {
         const hot = !state.hover || neighbours.has(row.from.nodeKey) || neighbours.has(row.to.nodeKey);
         const ink = messageStyle(row, hot, flagged);
-        const expanded = state.showNames || state.hover === row.to.nodeKey || state.highlight.has(row.to.nodeKey) || row.from.nodeKey === state.focus || row.to.nodeKey === state.focus;
         const count = row.edge && row.edge.count > 1 ? ` ×${row.edge.count}` : "";
         const partial = row.edge && row.edge.followed && row.from.kind === "interaction" && row.from.count > 1 && row.edge.followed < row.from.count
           ? ` ${row.edge.followed}/${row.from.count}`
           : "";
-        const label = escapeText(`${shortName(row.to.name, expanded)}${count}${partial}`);
+        const label = escapeText(`${shortName(row.to.name, false)}${count}${partial}`);
         const value = valueMarkup(row);
         const colour = ink.onFinding ? "#ff5c5c" : (LAYER_COLOR[row.to.layer] || "#ddd");
         const same = row.from.layer === row.to.layer;
@@ -2592,7 +2594,7 @@
       "view-sequence": "Sequence draws the same things in time order, with a column for each part of the stack. Values, when on, writes the playhead run halfway along each message.",
       "view-latency": "Each point is one finished run of a request or query. The line joins later runs of that same request, so a rise means it took longer. There is one line per request. The vertical axis covers those runs, in decades. Click a point to select that request in the graph and the sequence diagram. Development times include stack-inspect. The API and the database wait while each event is posted here, so a short query can look slower than the database work. A rise on one line is still that run getting slower. The adapters do not start in production.",
       graph: "Each dot is something that ran. It starts small and grows each time that thing runs again, up to the playhead. Once the playhead has reached it, the dot stays while playback moves forward. A line means one event recorded that it happened inside another, or because of another. A click is the cause of the browser call that follows it. Hover that click to count what followed it. After a second press, the count splits into every time and some of the time. A request that carried another request's span id is the cause of that next hop. A line into a finished request or query takes its colour from that request's median duration, up to the playhead. Under 50 ms stays cool, a few hundred milliseconds turns warm, and around a second is hot. Thickness still follows the count. A rose line is duplicated work with no measured duration. A dashed line was read from the application source, and it appears only when both ends have already run. Sharing a trace does not draw a line, so jobs and worker can be in the same story with nothing joining them. Drag the background to move around, scroll to zoom, and drag a dot to pin it. Hover a dot to see what it connects to. Names starts off. Sequence and Latency switch this panel without clearing the filters. This trace keeps pushing dots apart up to 250 of them, and All activity up to 120. Past that the dots sit in columns by layer, in the order they first ran. A settled picture rests until the playhead, the filters or a new event changes it. Dragging a dot moves that dot only.",
-      names: "Shows the full name beside every dot, the full name on every sequence message, and the name of every latency line, including while a finding is open. It starts off. With it off, hovering a dot still names that dot and every dot joined to it. Sequence messages keep a short name either way.",
+      names: "Shows the full name beside every dot and the name of every latency line, including while a finding is open. It starts off. With it off, hovering a dot still names that dot and every dot joined to it. Sequence messages stay short. Hover a message to read the full name.",
       values: "Shows recorded values halfway along each line, on the graph and on the sequence diagram. The caption is that run at the playhead, in the same gold label in both views. A dot with no line shows the label beside it. Values starts on. Turn it off to leave the lines clear. Hovering a dot still lists the values.",
       search: "Type part of a name to hide dots that do not match, and their latency lines. Clear the box to show them again.",
       live: "Follows whatever just happened and recentres the picture. Choosing a trace in the list turns this off. Press it again to follow the newest story.",

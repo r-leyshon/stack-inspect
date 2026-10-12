@@ -103,6 +103,15 @@ def test_page_rests_a_large_graph(tmp_path: Path) -> None:
     assert "moves that dot only" in page.text
 
 
+def test_sequence_messages_keep_a_short_name(tmp_path: Path) -> None:
+    """A sequence message stays short, and the hover tip can hold the full name."""
+    client = TestClient(create_app(EventLog(tmp_path / "events.db")), client=("127.0.0.1", 50000))
+    page = client.get("/")
+    assert "shortName(row.to.name, false)" in page.text
+    assert "Hover a message to read the full name." in page.text
+    assert "overflow-wrap: anywhere" in page.text
+
+
 def test_page_resets_the_graph_filters(tmp_path: Path) -> None:
     """Reset filters clears the search, the selected trace, the open finding and the focused dot."""
     client = TestClient(create_app(EventLog(tmp_path / "events.db")), client=("127.0.0.1", 50000))
