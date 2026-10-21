@@ -110,21 +110,32 @@ import { withStackInspect } from "@stack-inspect/next/middleware";
 export default withStackInspect((request) => NextResponse.next());
 ```
 
-Root layout, so the hook exists before React starts:
+Install the DevTools hook before React hydrates. Prefer
+`instrumentation-client.ts` (Next.js 15.3+). Do not rely on
+`next/script` with `beforeInteractive` alone — Next queues that after
+its async chunks, so React can load first and never call `inject()`.
+
+```ts
+// instrumentation-client.ts (app root)
+import { installDevtoolsHook } from "@stack-inspect/react";
+
+installDevtoolsHook();
+```
+
+Optional belt-and-braces inline script in the root layout `<head>`:
 
 ```tsx
 import { devtoolsHookSource } from "@stack-inspect/react";
-import Script from "next/script";
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en-GB">
-      <body>
-        <Script id="stack-inspect-hook" strategy="beforeInteractive">
-          {devtoolsHookSource}
-        </Script>
-        {children}
-      </body>
+      <head>
+        <script
+          dangerouslySetInnerHTML={{ __html: devtoolsHookSource }}
+        />
+      </head>
+      <body>{children}</body>
     </html>
   );
 }

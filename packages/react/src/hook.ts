@@ -1,15 +1,34 @@
 /**
- * Source of the DevTools hook injected before React starts.
- * It records which function components rendered in each commit.
+ * DevTools hook that records mounts, unmounts, renders and effect runs.
+ * Install before React when possible; also patches a hook that already exists.
  */
 import { valuesEnabled } from "@stack-inspect/core";
 
 const recordValues = valuesEnabled();
 
-export const devtoolsHookSource = `
+/** Inline script body for optional early HTML injection. */
+export const devtoolsHookSource = buildHookSource(recordValues);
+
+/** Install or patch the DevTools hook in this realm. Safe to call more than once. */
+export function installDevtoolsHook(): void {
+  if (typeof window === "undefined") {
+    return;
+  }
+  if (recordValues) {
+    (
+      window as Window & { __stackInspectRecordValues?: boolean }
+    ).__stackInspectRecordValues = true;
+  }
+  // Trusted package source; Function avoids leaking locals into the hook scope.
+  new Function(devtoolsHookSource)();
+}
+
+function buildHookSource(values: boolean): string {
+  return `
 (function () {
-  if (window.__REACT_DEVTOOLS_GLOBAL_HOOK__) return;
-  var recordValues = ${recordValues ? "true" : "false"};
+  if (globalThis.__stackInspectHookAttached) return;
+  globalThis.__stackInspectHookAttached = true;
+  var recordValues = ${values ? "true" : "false"} || globalThis.__stackInspectRecordValues === true;
   if (recordValues) globalThis.__stackInspectRecordValues = true;
   function stateChanged(fiber) {
     var previous = fiber.alternate;
@@ -34,6 +53,15 @@ export const devtoolsHookSource = `
     }
     for (key in prevProps) {
       if (key !== "children" && !Object.is(nextProps[key], prevProps[key])) return true;
+    }
+    return false;
+  }
+  function hasEffects(fiber) {
+    var hook = fiber.memoizedState;
+    while (hook) {
+      var effect = hook.memoizedState;
+      if (effect && typeof effect.create === "function") return true;
+      hook = hook.next;
     }
     return false;
   }
@@ -94,28 +122,89 @@ export const devtoolsHookSource = `
     if (!changed.length) return "";
     try { return JSON.stringify(changed).slice(0, 200); } catch (error) { return ""; }
   }
+  function fiberName(fiber) {
+    var type = fiber && fiber.type;
+    return type && (type.displayName || type.name) || "";
+  }
   function walk(fiber, found, ancestorState) {
     if (!fiber) return;
     var type = fiber.type;
     var name = type && (type.displayName || type.name);
     var nextAncestor = ancestorState;
-    if (typeof type === "function" && name && fiber.alternate) {
-      var props = propsChanged(fiber);
-      var state = stateChanged(fiber);
-      found.push({
-        name: name,
-        unchanged: !props && !state,
-        stateChanged: state,
-        effectRestarted: effectRestarted(fiber),
-        causeName: state ? name : ancestorState || "",
-        state: state ? changedState(fiber) : "",
-      });
-      if (state) nextAncestor = name;
+    if (typeof type === "function" && name) {
+      var mounted = !fiber.alternate;
+      if (mounted || fiber.alternate) {
+        var props = mounted ? false : propsChanged(fiber);
+        var state = mounted ? false : stateChanged(fiber);
+        var restarted = !mounted && effectRestarted(fiber);
+        found.push({
+          name: name,
+          mounted: mounted,
+          unchanged: !mounted && !props && !state,
+          stateChanged: state,
+          effectRestarted: restarted,
+          effectRan: mounted ? hasEffects(fiber) : restarted,
+          causeName: state ? name : ancestorState || "",
+          state: state ? changedState(fiber) : "",
+        });
+        if (state) nextAncestor = name;
+      }
     }
     walk(fiber.child, found, nextAncestor);
     walk(fiber.sibling, found, ancestorState);
   }
-  globalThis.__siCommits = [];
+  function flushNow() {
+    var flush = globalThis.__siFlushCommits;
+    if (typeof flush === "function") flush();
+  }
+  function onCommit(_id, root) {
+    try {
+      var found = [];
+      var fiber = root && (root.current || root);
+      walk(fiber, found, "");
+      globalThis.__siCommits.push(found);
+      // Flush before layout/passive effects so effect-driven fetch sees the cause.
+      flushNow();
+    } catch (error) {
+      console.error("stack-inspect react hook", error);
+    }
+  }
+  function onUnmount(_id, fiber) {
+    try {
+      var name = fiberName(fiber);
+      if (name && typeof fiber.type === "function") {
+        globalThis.__siUnmounts.push({ name: name });
+        flushNow();
+      }
+    } catch (error) {
+      console.error("stack-inspect react unmount", error);
+    }
+  }
+  if (!globalThis.__siCommits) globalThis.__siCommits = [];
+  if (!globalThis.__siUnmounts) globalThis.__siUnmounts = [];
+  var existing = globalThis.__REACT_DEVTOOLS_GLOBAL_HOOK__;
+  if (existing) {
+    var prevCommit = existing.onCommitFiberRoot;
+    var prevUnmount = existing.onCommitFiberUnmount;
+    existing.supportsFiber = true;
+    if (!existing.renderers) existing.renderers = new Map();
+    if (typeof existing.inject !== "function") {
+      existing.inject = function (renderer) {
+        var id = this.renderers.size + 1;
+        this.renderers.set(id, renderer);
+        return id;
+      };
+    }
+    existing.onCommitFiberRoot = function (id, root) {
+      onCommit(id, root);
+      if (typeof prevCommit === "function") prevCommit.apply(this, arguments);
+    };
+    existing.onCommitFiberUnmount = function (id, fiber) {
+      onUnmount(id, fiber);
+      if (typeof prevUnmount === "function") prevUnmount.apply(this, arguments);
+    };
+    return;
+  }
   globalThis.__REACT_DEVTOOLS_GLOBAL_HOOK__ = {
     supportsFiber: true,
     renderers: new Map(),
@@ -125,17 +214,9 @@ export const devtoolsHookSource = `
       return id;
     },
     onScheduleFiberRoot: function () {},
-    onCommitFiberRoot: function (_id, root) {
-      try {
-        var found = [];
-        var fiber = root && (root.current || root);
-        walk(fiber, found, "");
-        globalThis.__siCommits.push(found);
-      } catch (error) {
-        console.error("stack-inspect react hook", error);
-      }
-    },
-    onCommitFiberUnmount: function () {},
+    onCommitFiberRoot: onCommit,
+    onCommitFiberUnmount: onUnmount,
   };
 })();
 `;
+}

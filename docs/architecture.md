@@ -44,7 +44,7 @@ flowchart TB
 | Component | Responsibility |
 | :-- | :-- |
 | Browser adapter | Wraps `fetch`, `XMLHttpRequest`, `EventSource` and `WebSocket`. Adds trace context to outgoing requests and records request, stream and message events. |
-| React adapter | Hooks into React's DevTools global hook to record renders, commits, state updates and effects. |
+| React adapter | Hooks into React's DevTools global hook to record mounts, unmounts, renders, commits, state updates and effects. |
 | DevTools adapter | Reads browser network failures through the Chrome DevTools Protocol, including CORS failure reasons, which are hidden from page JavaScript. See §6. |
 | Next.js adapter | Uses Next.js instrumentation (`instrumentation.ts`) plus Node HTTP instrumentation. Records middleware/proxy decisions, route handlers, server components and server actions. |
 | FastAPI adapter | Wraps each layer of the ASGI middleware stack, routes, streaming responses and WebSocket endpoints. Optionally records the Python call tree. |
@@ -66,7 +66,7 @@ The full model is in [ADR 0003](adr/0003-event-schema-and-graph-model.md). In su
 Node kinds:
 
 ```text
-interaction · state-update · render · effect · middleware · request
+interaction · state-update · render · effect · mount · unmount · middleware · request
 · stream · stream-message · function-call · query · error
 ```
 

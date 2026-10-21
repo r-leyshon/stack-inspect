@@ -12,6 +12,7 @@ import {
   valuesEnabled,
 } from "@stack-inspect/core";
 import type React from "react";
+import { installDevtoolsHook } from "./hook";
 
 type QueryClientLike = {
   getQueryCache: () => {
@@ -27,7 +28,7 @@ type QueryCacheEvent = {
 
 let installed = false;
 
-export { devtoolsHookSource } from "./hook";
+export { devtoolsHookSource, installDevtoolsHook } from "./hook";
 
 /** Patch React. No effect unless stack-inspect is enabled. */
 export function install(react: typeof React): void {
@@ -36,13 +37,21 @@ export function install(react: typeof React): void {
     return;
   }
   installed = true;
+  installDevtoolsHook();
   const page = window as Window & {
     __REACT_DEVTOOLS_GLOBAL_HOOK__?: { onCommitFiberRoot?: unknown };
     __siCommits?: unknown[];
+    __siUnmounts?: unknown[];
+    __siFlushCommits?: () => void;
   };
-  if (!page.__REACT_DEVTOOLS_GLOBAL_HOOK__) {
+  if (!page.__siCommits) {
     page.__siCommits = [];
   }
+  if (!page.__siUnmounts) {
+    page.__siUnmounts = [];
+  }
+  // Hook calls this from onCommitFiberRoot before React runs effects.
+  page.__siFlushCommits = flushCommits;
   flushCommits();
   watchFibers();
   setInterval(flushCommits, 50);
@@ -129,6 +138,7 @@ type Seen = {
   props: Record<string, unknown>;
   state: string;
   deps: string;
+  name: string;
 };
 
 const seenFibers = new Map<string, Seen>();
@@ -156,6 +166,18 @@ function sampleFibers(): void {
   }
 }
 
+function hookReceivesCommits(): boolean {
+  if (typeof window === "undefined") {
+    return false;
+  }
+  const hook = (
+    window as Window & {
+      __REACT_DEVTOOLS_GLOBAL_HOOK__?: { renderers?: { size?: number } };
+    }
+  ).__REACT_DEVTOOLS_GLOBAL_HOOK__;
+  return (hook?.renderers?.size ?? 0) > 0;
+}
+
 function sampleFibersUnsafe(): void {
   const root = fiberRoot(document.body);
   if (!root) {
@@ -170,6 +192,23 @@ function sampleFibersUnsafe(): void {
     deps: string;
   }[] = [];
   walkFibers(root, "root", found, new Set());
+  const commitHookLive = hookReceivesCommits();
+  const present = new Set(found.map((item) => item.key));
+  for (const [key, previous] of seenFibers) {
+    if (present.has(key)) {
+      continue;
+    }
+    seenFibers.delete(key);
+    if (commitHookLive) {
+      continue;
+    }
+    clearActiveEffectCause(previous.name);
+    emit(
+      reactEvent(previous.name, "unmount", `browser:unmount:${previous.name}`, {
+        component: previous.name,
+      }),
+    );
+  }
   const samples: SampleCause[] = [];
   for (const item of found) {
     const previous = seenFibers.get(item.key);
@@ -178,8 +217,22 @@ function sampleFibersUnsafe(): void {
       props: item.props,
       state: item.state,
       deps: item.deps,
+      name: item.name,
     });
     if (!previous) {
+      if (commitHookLive) {
+        continue;
+      }
+      samples.push({
+        key: item.key,
+        name: item.name,
+        stateChanged: false,
+        depsChanged: item.deps !== "",
+        rerendered: false,
+        mounted: true,
+        unchanged: true,
+        state: "",
+      });
       continue;
     }
     const propsChanged =
@@ -193,6 +246,7 @@ function sampleFibersUnsafe(): void {
       stateChanged,
       depsChanged,
       rerendered,
+      mounted: false,
       unchanged: !propsChanged && !stateChanged,
       state: stateChanged ? changedHookValues(previous.state, item.state) : "",
     });
@@ -205,6 +259,29 @@ function sampleFibersUnsafe(): void {
   }
   for (const sample of samples) {
     const causeIds = causeIdsFor(sample.key, sample.stateChanged, stateIds);
+    if (sample.mounted) {
+      emit(
+        reactEvent(sample.name, "mount", `browser:mount:${sample.name}`, {
+          component: sample.name,
+        }),
+      );
+      if (sample.depsChanged) {
+        const effectId = newEventId();
+        const nodeKey = `browser:effect:${sample.name}`;
+        emit(
+          reactEvent(
+            sample.name,
+            "effect",
+            nodeKey,
+            { component: sample.name, restarted: false },
+            effectId,
+            causeIds,
+          ),
+        );
+        setActiveEffectCause(sample.name, effectId, nodeKey);
+      }
+      continue;
+    }
     if (sample.stateChanged) {
       emit(
         reactEvent(
@@ -220,16 +297,19 @@ function sampleFibersUnsafe(): void {
       recordRender(sample.name, sample.unchanged, causeIds);
     }
     if (sample.depsChanged) {
+      const effectId = newEventId();
+      const nodeKey = `browser:effect:${sample.name}`;
       emit(
         reactEvent(
           sample.name,
           "effect",
-          `browser:effect:${sample.name}`,
-          undefined,
-          undefined,
+          nodeKey,
+          { component: sample.name, restarted: true },
+          effectId,
           causeIds,
         ),
       );
+      setActiveEffectCause(sample.name, effectId, nodeKey);
     }
   }
 }
@@ -240,6 +320,7 @@ type SampleCause = {
   stateChanged: boolean;
   depsChanged: boolean;
   rerendered: boolean;
+  mounted: boolean;
   unchanged: boolean;
   state: string;
 };
@@ -321,10 +402,23 @@ function walkFibers(
 }
 
 function isFrameworkComponent(name: string): boolean {
+  // Minified Next/React internals are one or two letters, sometimes with a digit.
+  if (name.length <= 2 || /^[a-z]{1,2}\d*$/.test(name)) {
+    return true;
+  }
   return (
     name.startsWith("__next") ||
     name.startsWith("AppRouter") ||
     name.startsWith("Inner") ||
+    name.startsWith("Outer") ||
+    name.startsWith("ClientPage") ||
+    name.startsWith("DevRoot") ||
+    name.startsWith("HTTPAccess") ||
+    name.startsWith("Redirect") ||
+    name.startsWith("Replay") ||
+    name.startsWith("ScrollAnd") ||
+    name.startsWith("Segment") ||
+    name.startsWith("Metadata") ||
     name.includes("Boundary") ||
     name.includes("Router") ||
     [
@@ -333,11 +427,13 @@ function isFrameworkComponent(name: string): boolean {
       "Head",
       "Root",
       "ServerRoot",
-      "SegmentViewNode",
-      "SegmentTrieNode",
       "RuntimeStyles",
       "HistoryUpdater",
-      "RedirectBoundary",
+      "LoadingBoundary",
+      "RenderFromTemplateContext",
+      "QueryClientProvider",
+      "AsyncMetadataOutlet",
+      "Page",
     ].includes(name)
   );
 }
@@ -405,30 +501,95 @@ function hookDeps(fiber: Fiber): string {
   }
 }
 
+type CommitRender = {
+  name: string;
+  mounted?: boolean;
+  unchanged: boolean;
+  stateChanged: boolean;
+  effectRestarted: boolean;
+  effectRan?: boolean;
+  causeName?: string;
+  state?: string;
+};
+
+const ACTIVE_CAUSE_MS = 250;
+
+type ActiveCause = {
+  componentName: string;
+  effectEventId: string;
+  nodeKey: string;
+  until: number;
+};
+
+function setActiveEffectCause(
+  componentName: string,
+  effectEventId: string,
+  nodeKey: string,
+): void {
+  if (typeof window === "undefined") {
+    return;
+  }
+  const page = window as Window & { __stackInspectActiveCause?: ActiveCause };
+  page.__stackInspectActiveCause = {
+    componentName,
+    effectEventId,
+    nodeKey,
+    until: Date.now() + ACTIVE_CAUSE_MS,
+  };
+}
+
+function clearActiveEffectCause(componentName?: string): void {
+  if (typeof window === "undefined") {
+    return;
+  }
+  const page = window as Window & { __stackInspectActiveCause?: ActiveCause };
+  if (!page.__stackInspectActiveCause) {
+    return;
+  }
+  if (
+    componentName &&
+    page.__stackInspectActiveCause.componentName !== componentName
+  ) {
+    return;
+  }
+  delete page.__stackInspectActiveCause;
+}
+
 function flushCommits(): void {
   if (typeof window === "undefined") {
     return;
   }
-  const commits = (
-    window as Window & {
-      __siCommits?: {
-        name: string;
-        unchanged: boolean;
-        stateChanged: boolean;
-        effectRestarted: boolean;
-        causeName?: string;
-        state?: string;
-      }[][];
+  const page = window as Window & {
+    __siCommits?: CommitRender[][];
+    __siUnmounts?: { name: string }[];
+  };
+  const unmounts = page.__siUnmounts;
+  if (unmounts?.length) {
+    const pendingUnmounts = unmounts.splice(0, unmounts.length);
+    for (const item of pendingUnmounts) {
+      if (isFrameworkComponent(item.name)) {
+        continue;
+      }
+      clearActiveEffectCause(item.name);
+      emit(
+        reactEvent(item.name, "unmount", `browser:unmount:${item.name}`, {
+          component: item.name,
+        }),
+      );
     }
-  ).__siCommits;
+  }
+  const commits = page.__siCommits;
   if (!commits?.length) {
     return;
   }
   const pending = commits.splice(0, commits.length);
   for (const commit of pending) {
+    const useful = commit.filter(
+      (render) => render.name && !isFrameworkComponent(render.name),
+    );
     const stateIds = new Map<string, string>();
     const stateValues = new Map<string, string>();
-    for (const render of commit) {
+    for (const render of useful) {
       if (render.stateChanged && !stateIds.has(render.name)) {
         stateIds.set(render.name, newEventId());
         if (render.state) {
@@ -447,25 +608,39 @@ function flushCommits(): void {
         ),
       );
     }
-    for (const render of commit) {
+    for (const render of useful) {
       const causeId = render.stateChanged
         ? stateIds.get(render.name)
         : render.causeName
           ? stateIds.get(render.causeName)
           : undefined;
       const causeIds = causeId ? [causeId] : [];
-      recordRender(render.name, render.unchanged, causeIds);
-      if (render.effectRestarted) {
+      if (render.mounted) {
+        emit(
+          reactEvent(render.name, "mount", `browser:mount:${render.name}`, {
+            component: render.name,
+          }),
+        );
+      } else {
+        recordRender(render.name, render.unchanged, causeIds);
+      }
+      if (render.effectRan || render.effectRestarted) {
+        const effectId = newEventId();
+        const nodeKey = `browser:effect:${render.name}`;
         emit(
           reactEvent(
             render.name,
             "effect",
-            `browser:effect:${render.name}`,
-            undefined,
-            undefined,
+            nodeKey,
+            {
+              component: render.name,
+              restarted: Boolean(render.effectRestarted),
+            },
+            effectId,
             causeIds,
           ),
         );
+        setActiveEffectCause(render.name, effectId, nodeKey);
       }
     }
   }

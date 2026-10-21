@@ -119,6 +119,7 @@ export function activeTrace(): ActiveTrace | null {
 function startInteraction(name: string): void {
   const now = Date.now();
   const interactionId = newEventId();
+  clearActiveEffectCause();
   if (pinned || !active || now - active.started > TRACE_WINDOW_MS) {
     pinned = false;
     active = {
@@ -144,6 +145,27 @@ function startInteraction(name: string): void {
   );
 }
 
+type ActiveCause = {
+  componentName: string;
+  effectEventId: string;
+  nodeKey: string;
+  until: number;
+};
+
+function clearActiveEffectCause(): void {
+  delete (window as Window & { __stackInspectActiveCause?: ActiveCause })
+    .__stackInspectActiveCause;
+}
+
+function activeEffectCauseIds(): string[] {
+  const cause = (window as Window & { __stackInspectActiveCause?: ActiveCause })
+    .__stackInspectActiveCause;
+  if (!cause || Date.now() > cause.until) {
+    return [];
+  }
+  return [cause.effectEventId];
+}
+
 function patchFetch(): void {
   const original = window.fetch.bind(window);
   window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -163,6 +185,7 @@ function patchFetch(): void {
     const id = newEventId();
     const path = pathOf(url);
     const method = (init?.method ?? "GET").toUpperCase();
+    const causeIds = activeEffectCauseIds();
     emit(
       browserEvent({
         id,
@@ -171,11 +194,19 @@ function patchFetch(): void {
         phase: "start",
         nodeKey: `browser:request:${path}`,
         parentId: trace?.interactionId,
+        ...(causeIds.length > 0 ? { causeIds } : {}),
         attributes: {
           method,
           path,
           url,
           ...(sentSpan ? { spanId } : {}),
+          ...(causeIds.length > 0
+            ? {
+                triggeredBy: (
+                  window as Window & { __stackInspectActiveCause?: ActiveCause }
+                ).__stackInspectActiveCause?.componentName,
+              }
+            : {}),
         },
       }),
     );
