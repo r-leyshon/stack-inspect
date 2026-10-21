@@ -103,6 +103,15 @@ def test_page_rests_a_large_graph(tmp_path: Path) -> None:
     assert "moves that dot only" in page.text
 
 
+def test_sequence_scroll_moves_along_the_story(tmp_path: Path) -> None:
+    """A plain scroll pans the sequence, and a modifier key zooms it."""
+    client = TestClient(create_app(EventLog(tmp_path / "events.db")), client=("127.0.0.1", 50000))
+    page = client.get("/")
+    assert "event.ctrlKey || event.metaKey || event.shiftKey" in page.text
+    assert "state.sequenceCamera.y += event.deltaY / scale" in page.text
+    assert "Scroll moves along the story." in page.text
+
+
 def test_sequence_messages_keep_a_short_name(tmp_path: Path) -> None:
     """A sequence message stays short, and the hover tip can hold the full name."""
     client = TestClient(create_app(EventLog(tmp_path / "events.db")), client=("127.0.0.1", 50000))
