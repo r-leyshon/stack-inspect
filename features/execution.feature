@@ -25,3 +25,8 @@ Feature: Execution graph
     When I trigger the "Load dashboard" action
     And I trigger the "Load dashboard" action
     Then the dependency edge into the SQL query has been observed at least 2 times
+
+  @m7
+  Scenario: A fetch inside useEffect names the effect as its cause
+    When I trigger the "Effect fetch" action
+    Then a browser request is caused by the EffectFetch effect

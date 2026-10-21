@@ -39,6 +39,7 @@ export default function Page() {
         <Rerender />
         <Fanout />
         <EffectRestart />
+        <EffectFetch />
         <Stream />
         <Socket />
         <CachedResults />
@@ -213,6 +214,37 @@ function EffectRestart() {
   return (
     <button type="button" onClick={() => setValue(value + 1)}>
       Restart effect
+    </button>
+  );
+}
+
+/** Planted: fetch runs inside useEffect so the browser adapter can attach causeIds. */
+function EffectFetch() {
+  const [tick, setTick] = useState(0);
+  const [status, setStatus] = useState("idle");
+  useEffect(() => {
+    if (tick === 0) {
+      return;
+    }
+    let cancelled = false;
+    void fetch("/api/dashboard")
+      .then((response) => {
+        if (!cancelled) {
+          setStatus(String(response.status));
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setStatus("failed");
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [tick]);
+  return (
+    <button type="button" onClick={() => setTick((value) => value + 1)}>
+      Effect fetch{status === "idle" ? "" : ` ${status}`}
     </button>
   );
 }

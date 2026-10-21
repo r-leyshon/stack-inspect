@@ -175,6 +175,41 @@ Then(
   },
 );
 
+Then("a browser request is caused by the EffectFetch effect", async () => {
+  await expect
+    .poll(async () => {
+      const events = await allEvents();
+      const effects = events.filter(
+        (event) =>
+          event.kind === "effect" &&
+          event.nodeKey === "browser:effect:EffectFetch",
+      );
+      const effectIds = new Set(effects.map((event) => event.id));
+      if (effectIds.size === 0) {
+        return false;
+      }
+      const causedRequest = events.some(
+        (event) =>
+          event.kind === "request" &&
+          event.layer === "browser" &&
+          (event.causeIds ?? []).some((id) => effectIds.has(id)),
+      );
+      if (causedRequest) {
+        return true;
+      }
+      const graph = await getJson<{
+        edges: { from: string; to: string; kind: string }[];
+      }>("/v1/graph");
+      return graph.edges.some(
+        (edge) =>
+          edge.kind === "caused" &&
+          edge.from === "browser:effect:EffectFetch" &&
+          edge.to.startsWith("browser:request:"),
+      );
+    })
+    .toBe(true);
+});
+
 Then(
   "the browser reports a CORS failure for {string}",
   async ({ page }, path: string) => {
@@ -316,10 +351,13 @@ async function waitForFailedRequest(
 }
 
 type RecordedEvent = {
+  id?: string;
   kind: string;
   layer: string;
   name: string;
+  nodeKey?: string;
   traceId: string;
+  causeIds?: string[];
   service?: string;
   attributes?: Record<string, unknown>;
 };
