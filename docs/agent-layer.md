@@ -29,7 +29,7 @@ The HTTP surface is already most of this façade:
 - `GET /v1/report` — Markdown by default, JSON when asked. Already a good LLM context blob.
 - `POST /v1/declared` — returns the source snapshot. Named roots are already read at startup; this reads them again.
 
-MCP would wrap those with clearer schemas, so an agent does not have to guess query parameters. Anything that cannot speak MCP still gets the stable JSON and Markdown report. A thin `stack-inspect ask` style CLI, or an "attach context" button that copies a finding-scoped bundle, covers the rest. Do not bake one vendor's agent SDK in as the only path.
+MCP wraps those with clearer schemas, so an agent does not have to guess query parameters. Anything that cannot speak MCP still gets the stable JSON and Markdown report. A thin `stack-inspect ask` style CLI, or an "attach context" button that copies a finding-scoped bundle, covers the rest. Do not bake one vendor's agent SDK in as the only path.
 
 ## Conversation shapes
 
@@ -116,11 +116,11 @@ The graph model should already be ready for later questions. `causeIds`, `read` 
 
 1. **Bundle for agents.** Done. `?trace=` and `?finding=` open that story and that finding.
 2. **MCP read tools** wrapping graph, findings and report. Done. See the status above.
-3. **Playwright journeys that assert findings** in the reference app, alongside the existing Gherkin suite.
+3. **Playwright journeys that assert findings** in the reference app. The Gherkin suite already covers the planted problems, including a fetch caused by `useEffect`.
 4. **A short agent-loop note** in the docs: attach MCP, run a journey, triage findings, patch, re-run.
 5. **Live subscribe and UI sync.** The agent sets the playhead or highlights a finding while the human watches.
 6. **Invalidation-aware questions** once Horizon 3 has something to say.
 
 ## First demo worth aiming at
 
-`list_findings` and `get_report` are available over MCP, and a finding link opens that story in the UI. A Playwright journey that plants a duplicate-fetch finding is still unbuilt.
+`list_findings` and `get_report` are available over MCP, and a finding link opens that story in the UI. The reference Gherkin suite plants duplicate fetch, effect→fetch and the other findings; an agent-driven loop that calls MCP after a journey is still the next step.

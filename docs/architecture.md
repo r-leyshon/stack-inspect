@@ -43,10 +43,10 @@ flowchart TB
 
 | Component | Responsibility |
 | :-- | :-- |
-| Browser adapter | Wraps `fetch`, `XMLHttpRequest`, `EventSource` and `WebSocket`. Adds trace context to outgoing requests and records request, stream and message events. |
-| React adapter | Hooks into React's DevTools global hook to record mounts, unmounts, renders, commits, state updates and effects. |
+| Browser adapter | Wraps `fetch`, `XMLHttpRequest`, `EventSource` and `WebSocket`. Adds trace context to outgoing requests and records request, stream and message events. A fetch that runs while a React effect is the active cause records observed `causeIds` to that effect. |
+| React adapter | Hooks into React's DevTools global hook to record mounts, unmounts, renders, commits, state updates and effects. The hook must exist before React loads (`instrumentation-client.ts`, see [setup](setup.md)). Commits are flushed before passive effects so effect-driven fetches see the active cause. |
 | DevTools adapter | Reads browser network failures through the Chrome DevTools Protocol, including CORS failure reasons, which are hidden from page JavaScript. See §6. |
-| Next.js adapter | Uses Next.js instrumentation (`instrumentation.ts`) plus Node HTTP instrumentation. Records middleware/proxy decisions, route handlers, server components and server actions. |
+| Next.js adapter | Uses Next.js instrumentation (`instrumentation.ts`) plus Node HTTP instrumentation. Records middleware/proxy decisions, route handlers, server components and server actions. Outgoing `fetch` to the configured collector URL is left alone so emit cannot recurse. |
 | FastAPI adapter | Wraps each layer of the ASGI middleware stack, routes, streaming responses and WebSocket endpoints. Optionally records the Python call tree. |
 | Database adapter | Hooks the database driver (asyncpg, or SQLAlchemy events on any engine) to record each query and its normalised fingerprint. Parameter values, and a short preview of rows asyncpg already returned, are recorded only when `STACK_INSPECT_VALUES=1`. |
 | Collector | Local process that receives events from every adapter and appends them to the event log. It binds to loopback only, and answers CORS so a page on `localhost` can post to `127.0.0.1`. |
@@ -156,7 +156,7 @@ The long-term goal is the full invalidation graph (see the [vision](vision.md)).
 
 1. **The event log is the source of truth.** Graphs are derived from it, so new inference can be run over old recordings.
 2. **Nodes have stable identities**, so "this component read this value" can be tracked across interactions.
-3. **Every event has an optional `causeIds` field**, even when nothing fills it in yet.
+3. **Every event has an optional `causeIds` field.** React fills it when a render names a state update, and when a browser fetch runs under an active effect.
 4. **`read` and `invalidated` edge kinds exist in the schema** from day one.
 5. **Every edge records how it was learned** (`observed`, `inferred` or `declared`), so edges supplied by libraries or inferred later can coexist with observed ones.
 
@@ -178,7 +178,7 @@ Rules run over the projected graph and raise findings in the UI:
 - A state update causing an unusually large render subtree.
 - A component re-rendering with no changed props or relevant state.
 - An effect repeatedly cancelled and restarted.
-- Duplicate requests with equivalent URLs or cache keys.
+- Duplicate requests with equivalent URLs or cache keys. The detail includes how many times and over how long. A non-idempotent method is titled separately. When the same component also mounted twice in the story, the detail says so.
 - A 5xx response missing CORS headers (reported to the browser as a CORS error).
 - A preflight rejected, or a response missing an expected CORS header.
 - A stream reconnecting repeatedly, or messages arriving with no observed consumer.

@@ -33,7 +33,7 @@ npx biome check .
 npm run test:e2e
 ```
 
-Acceptance tests are Gherkin feature files in `features/`, run by playwright-bdd against the reference app. Each planted problem (an N+1 query, a duplicate fetch, a CORS failure that is really a server error, a rejected preflight, streams, a needless re-render, a restarted effect, a query invalidation) has a scenario.
+Acceptance tests are Gherkin feature files in `features/`, run by playwright-bdd against the reference app. Each planted problem (an N+1 query, a duplicate fetch, a CORS failure that is really a server error, a rejected preflight, streams, a needless re-render, a restarted effect, a fetch inside `useEffect`, a query invalidation) has a scenario.
 
 ## Licence
 

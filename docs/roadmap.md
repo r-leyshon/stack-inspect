@@ -19,7 +19,7 @@ Milestones are grouped by the three levels in the [vision](vision.md). Each has 
 ## Horizon 1: execution graph
 
 ### M0: Reference app
-A small Next.js + FastAPI + PostgreSQL app that deliberately contains the problems stack-inspect should find: an N+1 query, a duplicate fetch, a needless re-render, a 500 error that shows up as a CORS failure, a rejected preflight, an SSE endpoint and a WebSocket endpoint.
+A small Next.js + FastAPI + PostgreSQL app that deliberately contains the problems stack-inspect should find: an N+1 query, a duplicate fetch, a needless re-render, a restarted effect, a fetch inside `useEffect`, a 500 error that shows up as a CORS failure, a rejected preflight, an SSE endpoint and a WebSocket endpoint.
 
 **Done when:** each planted problem can be triggered from the UI on demand.
 

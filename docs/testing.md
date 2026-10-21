@@ -11,7 +11,7 @@ stack-inspect is tested at three levels. The decision is recorded in [ADR 0009](
 ## Unit tests
 
 - **Python:** pytest. Async tests use the pytest plugin that ships with `anyio`, which FastAPI already depends on, so it adds no new dependency.
-- **TypeScript:** Vitest. React adapter tests use React Testing Library with a DOM environment.
+- **TypeScript:** Vitest where a package has it. This checkout also keeps adapter source checks in pytest (hook install, mount fields, collector self-exclusion) so the React and Next adapters stay covered without a browser.
 - Unit tests don't touch the network, a database or a browser. They use fakes for those boundaries.
 - Write the test first where practical. Every bug fix starts with a failing test that reproduces the bug.
 

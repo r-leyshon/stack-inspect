@@ -48,6 +48,8 @@ Set these for the API, the Next.js server, and any worker. The browser bundle ca
 
 Browser origin: if the app runs at `http://localhost:3000`, the browser treats `http://127.0.0.1:9477` as a different origin. The collector answers CORS, so the browser adapter can post to the default collector URL from either `localhost` or `127.0.0.1` without a proxy.
 
+The Next.js and browser adapters skip instrumenting requests whose URL starts with that configured collector origin. If you point `NEXT_PUBLIC_STACK_INSPECT_URL` at a Next.js proxy path, set `STACK_INSPECT_URL` on the server to the same origin you actually post to, or the adapter will re-enter `emit` and overflow the stack.
+
 Production is refused when `NODE_ENV` or `STACK_INSPECT_ENV` is `production`. Python also refuses `prod`, and refuses `ENVIRONMENT` set to `production` or `prod`. Bodies, cookies and tokens are never recorded. Keys named password, token, cookie, secret or authorization are removed from the values that the flag does record.
 
 ## Collector
