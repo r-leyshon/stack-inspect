@@ -46,6 +46,8 @@ Set these for the API, the Next.js server, and any worker. The browser bundle ca
 | `STACK_INSPECT_SERVICE` | A process, when several share a trace | Name on the timeline, for example `api` or `worker`. |
 | `STACK_INSPECT_URL` | A process whose collector is not the default | Collector origin. The default is `http://127.0.0.1:9477`. The page reads `NEXT_PUBLIC_STACK_INSPECT_URL`. |
 
+Browser origin: if the app runs at `http://localhost:3000`, the browser treats `http://127.0.0.1:9477` as a different origin. The collector answers CORS, so the browser adapter can post to the default collector URL from either `localhost` or `127.0.0.1` without a proxy.
+
 Production is refused when `NODE_ENV` or `STACK_INSPECT_ENV` is `production`. Python also refuses `prod`, and refuses `ENVIRONMENT` set to `production` or `prod`. Bodies, cookies and tokens are never recorded. Keys named password, token, cookie, secret or authorization are removed from the values that the flag does record.
 
 ## Collector

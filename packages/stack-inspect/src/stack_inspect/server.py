@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from fastapi import FastAPI, Request, Response
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse
 
 from stack_inspect.mcp_server import attach_mcp, bind, collector_lifespan, mcp_application
@@ -26,6 +27,16 @@ _LOOPBACK = frozenset({"127.0.0.1", "::1", "localhost"})
 def create_app(log: EventLog, roots: list[Path] | None = None) -> FastAPI:  # noqa: C901 # route registration is a flat list, not nested logic
     """Return the collector application bound to ``log``. Named ``roots`` are read now."""
     app, source = _collector_app(log, roots)
+
+    # Registered before loopback_only so Starlette wraps CORS outermost. The IP
+    # filter is the security boundary; wildcard origins only matter for the browser
+    # adapter posting from localhost or 127.0.0.1 on another port.
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
 
     @app.middleware("http")
     async def loopback_only(request: Request, call_next: RequestResponseEndpoint) -> Response:
