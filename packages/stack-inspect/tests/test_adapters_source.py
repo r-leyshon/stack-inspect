@@ -53,3 +53,10 @@ def test_browser_fetch_attaches_active_effect_cause_ids() -> None:
     assert "causeIds" in source
     assert "__stackInspectActiveCause" in source
     assert "clearActiveEffectCause" in source
+
+
+def test_next_fetch_skips_the_configured_collector_url() -> None:
+    """Self-exclusion uses collectorUrl(), not a hardcoded :9477 port."""
+    source = (ROOT / "packages/next/src/index.ts").read_text(encoding="utf-8")
+    assert "url.startsWith(collectorUrl())" in source
+    assert ":9477" not in source

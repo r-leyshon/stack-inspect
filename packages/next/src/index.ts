@@ -5,6 +5,7 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import http from "node:http";
 import {
+  collectorUrl,
   emit,
   enabled,
   formatTraceparent,
@@ -140,7 +141,8 @@ function patchFetch(): void {
   const original = globalThis.fetch.bind(globalThis);
   globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = requestUrl(input);
-    if (url.includes(":9477")) {
+    // Skip the collector itself — including a proxied or non-default URL.
+    if (url.startsWith(collectorUrl())) {
       return original(input, init);
     }
     const store = storage.getStore();
