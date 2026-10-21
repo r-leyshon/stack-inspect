@@ -1,8 +1,8 @@
 # Agentic layer
 
-**Status:** The read tools are implemented ([ADR 0019](adr/0019-mcp-on-the-collector.md)). Playwright journeys, playhead control and invalidation questions are not.
+**Status:** The read tools are implemented ([ADR 0019](adr/0019-mcp-on-the-collector.md)). Findings carry span timing, method and idempotent flags where they apply, and `siblings` in the same story. Graph nodes expose `runs` alongside `count`. Mount and unmount events, and observed effect→fetch `causeIds`, are recorded when the React and browser adapters are installed. Playwright journeys, playhead control and invalidation questions are not.
 
-While `stack-inspect serve` is running, a client attaches to `http://127.0.0.1:9477/mcp`. The tools are `list_findings`, `get_finding`, `get_report`, `list_stories`, `get_graph` and `get_node_neighbourhood`. Each finding includes a link, `http://127.0.0.1:9477/?trace=…&finding=…`, and the page opens that story and that finding. A graph over the limit tells the caller to narrow the question. The tools do not clear the log, move the playhead, scan source, or turn value recording on.
+While `stack-inspect serve` is running, a client attaches to `http://127.0.0.1:9477/mcp`. The tools are `list_findings`, `get_finding`, `get_report`, `list_stories`, `get_graph` and `get_node_neighbourhood`. Each finding includes a link, `http://127.0.0.1:9477/?trace=…&finding=…`, and the page opens that story and that finding. Duplicate and repeated findings say how many times the work ran and over how long. A graph over the limit returns only `nodeCount` and `edgeCount` until narrowed; each node’s `runs` / `count` is how many times that key ran in the story. The tools do not clear the log, move the playhead, scan source, or turn value recording on.
 
 ## North star
 
@@ -24,7 +24,7 @@ An MCP server on the collector is the flexible front door. One server, many agen
 The HTTP surface is already most of this façade:
 
 - `GET /v1/graph` — projected nodes and edges, including declared edges when both ends were observed.
-- `GET /v1/findings` — analysis findings with `code`, `title`, `traceId`, `detail`, `at` and `nodeKeys`.
+- `GET /v1/findings` — analysis findings with `code`, `title`, `traceId`, `detail`, `at`, `nodeKeys`, optional timing and method fields, and `siblings` in the same story.
 - `GET /v1/traces` — one summary per story, for the timeline.
 - `GET /v1/report` — Markdown by default, JSON when asked. Already a good LLM context blob.
 - `POST /v1/declared` — returns the source snapshot. Named roots are already read at startup; this reads them again.

@@ -77,12 +77,53 @@ def test_list_findings_cites_the_story_and_the_page() -> None:
     assert finding["code"] == "repeated-query"
     assert finding["traceId"] == "trace-jobs"
     assert finding["nodeKeys"] == ["db:query:notes"]
+    runs = 3
+    span_ms = 2
+    assert finding["count"] == runs
+    assert finding["durationMs"] == span_ms
+    assert finding["siblings"] == []
     link = finding["link"]
     assert isinstance(link, str)
     assert link.startswith("http://127.0.0.1:9477/?")
     assert "trace=trace-jobs" in link
     assert "finding=repeated-query" in link
     assert "db%3Aquery%3Anotes" in link or "db:query:notes" in link
+
+
+def test_list_findings_lists_siblings_in_the_same_story() -> None:
+    """Findings in one story name each other without claiming a cause."""
+    events = [
+        *_story(),
+        _event(
+            "dup-a",
+            ts=1_700_000_000_010,
+            nodeKey="api:request:GET /jobs",
+            kind="request",
+            layer="api",
+            name="GET /jobs",
+            attributes={"method": "GET", "path": "/jobs"},
+        ),
+        _event(
+            "dup-b",
+            ts=1_700_000_000_020,
+            phase="instant",
+            nodeKey="api:request:GET /jobs",
+            kind="request",
+            layer="api",
+            name="GET /jobs",
+            attributes={"method": "GET", "path": "/jobs"},
+        ),
+    ]
+    findings = list_findings(events)["findings"]
+    assert isinstance(findings, list)
+    codes = {finding["code"] for finding in findings if isinstance(finding, dict)}
+    assert "repeated-query" in codes
+    assert "duplicate-request" in codes
+    for finding in findings:
+        assert isinstance(finding, dict)
+        siblings = finding["siblings"]
+        assert isinstance(siblings, list)
+        assert any(sibling["code"] != finding["code"] for sibling in siblings)
 
 
 def test_get_finding_returns_one_match() -> None:
@@ -136,6 +177,8 @@ def test_get_graph_filters_a_story_and_stops_at_the_limit() -> None:
     nodes = narrowed["nodes"]
     assert isinstance(nodes, list)
     assert [node["name"] for node in nodes if isinstance(node, dict)] == ["select count(*) from notes"]
+    runs = 3
+    assert nodes[0]["runs"] == nodes[0]["count"] == runs
     wide = [
         _event(
             f"n-{index}",
@@ -158,6 +201,8 @@ def test_neighbourhood_includes_the_edge_and_the_finding() -> None:
     node = body["node"]
     assert isinstance(node, dict)
     assert node["nodeKey"] == "db:query:notes"
+    runs = 3
+    assert node["runs"] == node["count"] == runs
     edges = body["edges"]
     assert isinstance(edges, list)
     assert edges[0]["from"] == "api:request:POST /jobs"

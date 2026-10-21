@@ -13,7 +13,7 @@ from stack_inspect.mcp_server import attach_mcp, bind, collector_lifespan, mcp_a
 from stack_inspect.model import GraphEvent, validate_event
 from stack_inspect.projector import Span, project
 from stack_inspect.report import build_report, render_markdown
-from stack_inspect.rules import analyse
+from stack_inspect.rules import analyse, finding_dict
 from stack_inspect.source import SOURCE_LIMITS, DeclaredEdge, DeclaredStore, declared_for_graph
 
 if TYPE_CHECKING:
@@ -24,7 +24,9 @@ if TYPE_CHECKING:
 _LOOPBACK = frozenset({"127.0.0.1", "::1", "localhost"})
 
 
-def create_app(log: EventLog, roots: list[Path] | None = None) -> FastAPI:  # noqa: C901 # route registration is a flat list, not nested logic
+def create_app(  # noqa: C901, PLR0915 # route registration is a flat list, not nested logic
+    log: EventLog, roots: list[Path] | None = None
+) -> FastAPI:
     """Return the collector application bound to ``log``. Named ``roots`` are read now."""
     app, source = _collector_app(log, roots)
 
@@ -122,6 +124,7 @@ def create_app(log: EventLog, roots: list[Path] | None = None) -> FastAPI:  # no
                     "name": node.name,
                     "service": node.service,
                     "count": node.count,
+                    "runs": node.count,
                 }
                 for node in projected.nodes.values()
             ],
@@ -132,19 +135,8 @@ def create_app(log: EventLog, roots: list[Path] | None = None) -> FastAPI:  # no
     @app.get("/v1/findings")
     def findings() -> dict[str, object]:
         """Return the analysis findings for the current log."""
-        return {
-            "findings": [
-                {
-                    "code": finding.code,
-                    "title": finding.title,
-                    "traceId": finding.trace_id,
-                    "detail": finding.detail,
-                    "at": finding.at,
-                    "nodeKeys": list(finding.node_keys),
-                }
-                for finding in analyse(log.all_events())
-            ],
-        }
+        found = analyse(log.all_events())
+        return {"findings": [finding_dict(finding, all_findings=found) for finding in found]}
 
     @app.get("/v1/traces")
     def traces() -> dict[str, object]:

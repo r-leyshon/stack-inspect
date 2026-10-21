@@ -28,6 +28,36 @@ def _event(**overrides: object) -> GraphEvent:
     return base
 
 
+def test_effect_cause_ids_link_a_fetch() -> None:
+    """A request that names an effect event draws an observed caused edge."""
+    events = [
+        _event(
+            id="effect-1",
+            phase="instant",
+            kind="effect",
+            layer="browser",
+            nodeKey="browser:effect:AudioUploader",
+            name="AudioUploader",
+            attributes={"component": "AudioUploader", "restarted": False},
+        ),
+        _event(
+            id="fetch-1",
+            phase="instant",
+            kind="request",
+            layer="browser",
+            nodeKey="browser:request:/blob",
+            name="GET /blob",
+            causeIds=["effect-1"],
+            ts=2,
+            attributes={"method": "GET", "path": "/blob", "triggeredBy": "AudioUploader"},
+        ),
+    ]
+    edges = [edge for edge in project(events).edges if edge.kind == "caused"]
+    assert len(edges) == 1
+    assert edges[0].origin == "browser:effect:AudioUploader"
+    assert edges[0].target == "browser:request:/blob"
+
+
 def test_cause_ids_become_a_caused_edge() -> None:
     """A render that names the state update which preceded it draws a caused edge."""
     events = [
@@ -210,7 +240,7 @@ def test_repeated_query_finding() -> None:
             layer="db",
             nodeKey="db:query:same",
             name="select",
-            ts=index,
+            ts=index * 1000,
             phase="instant",
             attributes={"fingerprint": "same"},
         )
@@ -220,6 +250,11 @@ def test_repeated_query_finding() -> None:
     match = next(finding for finding in findings if finding.code == "repeated-query")
     assert match.at == events[-1]["ts"]
     assert match.node_keys == ("db:query:same",)
+    runs = 3
+    span_ms = 2000
+    assert match.count == runs
+    assert match.duration_ms == span_ms
+    assert "over 2.0s" in match.detail
 
 
 def test_duplicated_edge_counts_extra_runs() -> None:
@@ -319,6 +354,103 @@ def test_duplicate_request() -> None:
     ]
     match = next(finding for finding in analyse(events) if finding.code == "duplicate-request")
     assert match.node_keys == ("api:request:GET /api/dashboard",)
+    assert match.title == "Duplicate request"
+    assert match.idempotent is True
+    assert match.method == "GET"
+    assert "over 1ms" in match.detail
+
+
+def test_duplicate_non_idempotent_request() -> None:
+    """A repeated POST is titled as non-idempotent and carries timing."""
+    events = [
+        _event(
+            id="a",
+            ts=1000,
+            nodeKey="api:request:POST /tokens",
+            name="POST /tokens",
+            attributes={"method": "POST", "path": "/tokens"},
+        ),
+        _event(
+            id="b",
+            ts=4100,
+            phase="instant",
+            nodeKey="api:request:POST /tokens",
+            name="POST /tokens",
+            attributes={"method": "POST", "path": "/tokens"},
+        ),
+        _event(
+            id="c",
+            ts=4200,
+            phase="instant",
+            nodeKey="api:request:POST /tokens",
+            name="POST /tokens",
+            attributes={"method": "POST", "path": "/tokens"},
+        ),
+        _event(
+            id="d",
+            ts=4300,
+            phase="instant",
+            nodeKey="api:request:POST /tokens",
+            name="POST /tokens",
+            attributes={"method": "POST", "path": "/tokens"},
+        ),
+    ]
+    match = next(finding for finding in analyse(events) if finding.code == "duplicate-request")
+    assert match.title == "Duplicate non-idempotent request"
+    assert match.idempotent is False
+    assert match.method == "POST"
+    runs = 4
+    span_ms = 3300
+    assert match.count == runs
+    assert match.duration_ms == span_ms
+    assert "POST /tokens ran 4 times over 3.3s" in match.detail
+
+
+def test_duplicate_request_notes_a_double_mount() -> None:
+    """When the same component mounted twice, the duplicate detail says so."""
+    events = [
+        _event(
+            id="m1",
+            ts=1,
+            kind="mount",
+            layer="browser",
+            nodeKey="browser:mount:AudioUploader",
+            name="AudioUploader",
+        ),
+        _event(
+            id="m2",
+            ts=2,
+            kind="mount",
+            layer="browser",
+            nodeKey="browser:mount:AudioUploader",
+            name="AudioUploader",
+        ),
+        _event(
+            id="r1",
+            ts=3,
+            kind="render",
+            layer="browser",
+            nodeKey="browser:render:AudioUploader",
+            name="AudioUploader",
+        ),
+        _event(
+            id="a",
+            ts=4,
+            nodeKey="api:request:GET /blob",
+            name="GET /blob",
+            attributes={"method": "GET", "path": "/blob"},
+        ),
+        _event(
+            id="b",
+            ts=5,
+            phase="instant",
+            nodeKey="api:request:GET /blob",
+            name="GET /blob",
+            attributes={"method": "GET", "path": "/blob"},
+        ),
+    ]
+    match = next(finding for finding in analyse(events) if finding.code == "duplicate-request")
+    assert "AudioUploader mounted 2 times in this story" in match.detail
 
 
 def test_sequential_queries() -> None:

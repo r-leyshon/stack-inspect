@@ -13,7 +13,7 @@ from starlette.routing import Route
 
 from stack_inspect.projector import Span, project
 from stack_inspect.report import build_report, render_markdown
-from stack_inspect.rules import analyse
+from stack_inspect.rules import analyse, finding_dict
 from stack_inspect.source import declared_for_graph
 
 if TYPE_CHECKING:
@@ -52,18 +52,20 @@ def bind(log: EventLog, source: DeclaredStore) -> None:
 
 def list_findings(events: list[GraphEvent]) -> dict[str, object]:
     """Return each finding, in analysis order, with a link that opens it."""
-    return {"findings": [_finding_payload(finding) for finding in analyse(events)]}
+    findings = analyse(events)
+    return {"findings": [_finding_payload(finding, findings) for finding in findings]}
 
 
 def get_finding(events: list[GraphEvent], *, code: str, trace_id: str) -> dict[str, object]:
     """Return the finding with this code in this story."""
-    matches = [finding for finding in analyse(events) if finding.code == code and finding.trace_id == trace_id]
+    findings = analyse(events)
+    matches = [finding for finding in findings if finding.code == code and finding.trace_id == trace_id]
     if not matches:
         return {"note": "No finding with that code in this trace."}
     if len(matches) == 1:
-        return {"finding": _finding_payload(matches[0])}
+        return {"finding": _finding_payload(matches[0], findings)}
     return {
-        "findings": [_finding_payload(finding) for finding in matches],
+        "findings": [_finding_payload(finding, findings) for finding in matches],
         "note": "Several findings share this code and trace. Each link opens one of them.",
     }
 
@@ -124,11 +126,12 @@ def get_node_neighbourhood(
     observed = [edge for edge in projected.edges if node_key in {edge.origin, edge.target}]
     drawn = _declared_edges(set(projected.nodes), observed, declared)
     incident = [edge for edge in drawn if node_key in {edge.origin, edge.target}]
-    named = [finding for finding in analyse(events) if node_key in finding.node_keys]
+    findings = analyse(events)
+    named = [finding for finding in findings if node_key in finding.node_keys]
     body: dict[str, object] = {
         "node": _node_payload(node),
         "edgeCount": len(observed) + len(incident),
-        "findings": [_finding_payload(finding) for finding in named],
+        "findings": [_finding_payload(finding, findings) for finding in named],
     }
     if len(observed) + len(incident) > _EDGE_LIMIT:
         body["note"] = "Too many edges touch this node. Ask for one story with get_graph."
@@ -143,7 +146,10 @@ def mcp_application() -> Starlette:
         "stack-inspect",
         instructions=(
             "Read the stack-inspect collector. Findings, reports and graph slices come from the same "
-            "projection as the UI. Cite code, nodeKey and traceId. Do not invent an edge."
+            "projection as the UI. Cite code, nodeKey and traceId. Do not invent an edge. "
+            "Node runs and count are how many times that nodeKey ran in the story. "
+            "Duplicate and repeated findings include durationMs and siblings in the same trace. "
+            "A graph over the limit returns only nodeCount and edgeCount until narrowed."
         ),
     )
     _register(server)
@@ -172,12 +178,12 @@ def _register(server: MCPServer) -> None:
 
     @server.tool(name="list_findings", annotations=_READ_ONLY, structured_output=False)
     def list_findings_tool() -> dict[str, object]:
-        """List findings. Each one includes its code, the story, the nodes, and a UI link."""
+        """List findings with timing, method, idempotent, siblings in the same story, and a UI link."""
         return list_findings(_events())
 
     @server.tool(name="get_finding", annotations=_READ_ONLY, structured_output=False)
     def get_finding_tool(code: str, trace_id: str) -> dict[str, object]:
-        """Return one finding by its code and trace id."""
+        """Return one finding by its code and trace id, including siblings in that story."""
         return get_finding(_events(), code=code, trace_id=trace_id)
 
     @server.tool(name="get_report", annotations=_READ_ONLY, structured_output=False)
@@ -192,12 +198,12 @@ def _register(server: MCPServer) -> None:
 
     @server.tool(name="get_graph", annotations=_READ_ONLY, structured_output=False)
     def get_graph_tool(trace_id: str, layer: str = "", name: str = "") -> dict[str, object]:
-        """Return the nodes and edges of one story. Filter by layer or by a name substring."""
+        """Return nodes and edges for one story. Each node has runs and count. Over the limit, only counts."""
         return get_graph(_events(), trace_id=trace_id, layer=layer or None, name=name or None, declared=_declared())
 
     @server.tool(name="get_node_neighbourhood", annotations=_READ_ONLY, structured_output=False)
     def get_node_neighbourhood_tool(node_key: str) -> dict[str, object]:
-        """Return one node, the edges that touch it, and the findings that name it."""
+        """Return one node (with runs), the edges that touch it, and the findings that name it."""
         return get_node_neighbourhood(_events(), node_key=node_key, declared=_declared())
 
 
@@ -269,18 +275,12 @@ def _declared_edges(
     return declared_for_graph(declared, node_keys, seen)
 
 
-def _finding_payload(finding: Finding) -> dict[str, object]:
+def _finding_payload(finding: Finding, all_findings: list[Finding]) -> dict[str, object]:
     """Return one finding in the same shape as ``GET /v1/findings``, plus its UI link."""
     key = f"{finding.code}:{finding.trace_id}:{'|'.join(finding.node_keys)}:{finding.detail}"
-    return {
-        "code": finding.code,
-        "title": finding.title,
-        "traceId": finding.trace_id,
-        "detail": finding.detail,
-        "at": finding.at,
-        "nodeKeys": list(finding.node_keys),
-        "link": _ui_link(finding.trace_id, key),
-    }
+    body = finding_dict(finding, all_findings=all_findings)
+    body["link"] = _ui_link(finding.trace_id, key)
+    return body
 
 
 def _ui_link(trace_id: str, finding: str) -> str:
@@ -290,7 +290,7 @@ def _ui_link(trace_id: str, finding: str) -> str:
 
 
 def _node_payload(node: GraphNode) -> dict[str, object]:
-    """Return one node in the same shape as ``GET /v1/graph``."""
+    """Return one node in the same shape as ``GET /v1/graph``, with ``runs`` for agents."""
     return {
         "nodeKey": node.node_key,
         "kind": node.kind,
@@ -298,6 +298,7 @@ def _node_payload(node: GraphNode) -> dict[str, object]:
         "name": node.name,
         "service": node.service,
         "count": node.count,
+        "runs": node.count,
     }
 
 

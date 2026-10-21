@@ -611,7 +611,7 @@
     const SEQUENCE_PAD = 36;
     const MEANING = {
       "repeated-query": "The same SQL ran several times inside one click. That is usually an N+1: the code asks for one row at a time instead of asking once.",
-      "duplicate-request": "The same HTTP call was recorded more than once in this interaction. Sometimes the screen really fetched twice. Sometimes the browser, Next.js and the API each recorded the one call.",
+      "duplicate-request": "The same HTTP call was recorded more than once in this interaction. The detail says how many times and over how long. A non-idempotent method such as POST is titled separately. Sometimes the screen really fetched twice. Sometimes the browser, Next.js and the API each recorded the one call.",
       "cors-masked-server-error": "The API returned a server error, and that response had no Access-Control-Allow-Origin header. The browser then hides the status and the page only sees a CORS failure.",
       "rejected-preflight": "Before the real request, the browser asked whether a header or method was allowed. The API's allow-list said no, so the request never ran.",
       "unchanged-rerender": "React rendered this component again, but the props and state it displays did not change. A parent updated, and this component was carried along.",
