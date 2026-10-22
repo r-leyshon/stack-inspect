@@ -1,6 +1,6 @@
 [project]
 name = "stack-inspect-core"
-version = "1.0.0"
+version = "1.1.0"
 description = "Dependency-free event emitter shared by stack-inspect adapters"
 readme = "README.md"
 requires-python = ">=3.12"

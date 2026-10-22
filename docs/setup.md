@@ -6,12 +6,12 @@ Development only. The adapters do nothing unless you opt in, and they refuse to 
 
 The collector stays out of the application lockfile. The adapters are development dependencies. They do not install Next.js, React, FastAPI, asyncpg or SQLAlchemy. The application already has those.
 
-A release is two files on one GitHub tag ([ADR 0018](adr/0018-github-release-assets.md)). The wheel's base has no server dependencies. The `serve` extra, used only by `uvx`, adds them. The first pin is `v1.0.0`.
+A release is two files on one GitHub tag ([ADR 0018](adr/0018-github-release-assets.md)). The wheel's base has no server dependencies. The `serve` extra, used only by `uvx`, adds them. The current pin is `v1.1.0`.
 
 ```bash
-uvx --from "stack-inspect[serve] @ https://github.com/r-leyshon/stack-inspect/releases/download/v1.0.0/stack_inspect-1.0.0-py3-none-any.whl" stack-inspect serve
-uv add --dev https://github.com/r-leyshon/stack-inspect/releases/download/v1.0.0/stack_inspect-1.0.0-py3-none-any.whl
-npm install --save-dev https://github.com/r-leyshon/stack-inspect/releases/download/v1.0.0/stack-inspect-1.0.0.tgz
+uvx --from "stack-inspect[serve] @ https://github.com/r-leyshon/stack-inspect/releases/download/v1.1.0/stack_inspect-1.1.0-py3-none-any.whl" stack-inspect serve
+uv add --dev https://github.com/r-leyshon/stack-inspect/releases/download/v1.1.0/stack_inspect-1.1.0-py3-none-any.whl
+npm install --save-dev https://github.com/r-leyshon/stack-inspect/releases/download/v1.1.0/stack-inspect-1.1.0.tgz
 ```
 
 Python imports stay `stack_inspect_fastapi`, `stack_inspect_db` and `stack_inspect_core`. The npm package exports `stack-inspect/browser`, `stack-inspect/react`, `stack-inspect/next` and `stack-inspect/next/middleware`. The snippets below use the workspace names in this repository (`@stack-inspect/browser` and the rest). The wheel's database adapter still patches a driver only after the application has imported it.

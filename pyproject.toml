@@ -1,6 +1,6 @@
 [project]
 name = "stack-inspect-workspace"
-version = "1.0.0"
+version = "1.1.0"
 description = "Development-only execution graph for Next.js, FastAPI and PostgreSQL"
 requires-python = ">=3.12"
 dependencies = []

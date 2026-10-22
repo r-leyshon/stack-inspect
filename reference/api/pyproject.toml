@@ -1,6 +1,6 @@
 [project]
 name = "stack-inspect-reference-api"
-version = "1.0.0"
+version = "1.1.0"
 description = "Reference FastAPI app with planted problems for stack-inspect"
 requires-python = ">=3.12"
 dependencies = [
