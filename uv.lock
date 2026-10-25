@@ -899,7 +899,7 @@ wheels = [
 
 [[package]]
 name = "stack-inspect"
-version = "1.1.0"
+version = "1.2.0"
 source = { editable = "packages/stack-inspect" }
 dependencies = [
     { name = "fastapi" },
@@ -918,12 +918,12 @@ requires-dist = [
 
 [[package]]
 name = "stack-inspect-core"
-version = "1.1.0"
+version = "1.2.0"
 source = { editable = "packages/stack-inspect-core" }
 
 [[package]]
 name = "stack-inspect-db"
-version = "1.1.0"
+version = "1.2.0"
 source = { editable = "packages/stack-inspect-db" }
 dependencies = [
     { name = "stack-inspect-core" },
@@ -947,7 +947,7 @@ provides-extras = ["asyncpg", "sqlalchemy"]
 
 [[package]]
 name = "stack-inspect-fastapi"
-version = "1.1.0"
+version = "1.2.0"
 source = { editable = "packages/stack-inspect-fastapi" }
 dependencies = [
     { name = "stack-inspect-core" },
@@ -958,7 +958,7 @@ requires-dist = [{ name = "stack-inspect-core", editable = "packages/stack-inspe
 
 [[package]]
 name = "stack-inspect-reference-api"
-version = "1.1.0"
+version = "1.2.0"
 source = { editable = "reference/api" }
 dependencies = [
     { name = "asyncpg" },
@@ -981,7 +981,7 @@ requires-dist = [
 
 [[package]]
 name = "stack-inspect-reference-worker"
-version = "1.1.0"
+version = "1.2.0"
 source = { editable = "reference/worker" }
 dependencies = [
     { name = "fastapi" },
@@ -1004,7 +1004,7 @@ requires-dist = [
 
 [[package]]
 name = "stack-inspect-workspace"
-version = "1.1.0"
+version = "1.2.0"
 source = { virtual = "." }
 
 [package.dev-dependencies]

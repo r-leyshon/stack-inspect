@@ -1,6 +1,6 @@
 [project]
 name = "stack-inspect-reference-worker"
-version = "1.1.0"
+version = "1.2.0"
 description = "Reference jobs API and worker, so a second process shows its own lane"
 requires-python = ">=3.12"
 dependencies = [
