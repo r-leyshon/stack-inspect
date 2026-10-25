@@ -64,7 +64,6 @@ def test_page_draws_the_graph_and_traces_carry_layers(tmp_path: Path) -> None:
     assert "1 consequence" in page.text
     assert "Drag the ruler or the playhead triangle" in page.text
     assert "jump to the start" in page.text
-    assert "paint its nodes red" in page.text
     assert "#4a2424" in page.text
     assert "whole graph at that same moment" in page.text
     assert "Parameter values are being recorded." in page.text
@@ -74,6 +73,17 @@ def test_page_draws_the_graph_and_traces_carry_layers(tmp_path: Path) -> None:
     span = client.get("/v1/traces").json()["traces"][0]["spans"][0]
     assert span["layer"] == "api"
     assert span["name"] == "GET /items"
+
+
+def test_page_opens_a_finding_as_a_neighbourhood_slice(tmp_path: Path) -> None:
+    """Opening a finding shows its ego graph; self-loops become a count badge."""
+    client = TestClient(create_app(EventLog(tmp_path / "events.db")), client=("127.0.0.1", 50000))
+    page = client.get("/")
+    assert "findingNeighbourhood" in page.text
+    assert "selfLoops" in page.text
+    assert "only its neighbourhood" in page.text
+    assert "paint those nodes red" in page.text
+    assert "ranked summary per story" in page.text
 
 
 def test_page_explains_where_recorded_values_appear(tmp_path: Path) -> None:

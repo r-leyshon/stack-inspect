@@ -55,6 +55,18 @@ def test_browser_fetch_attaches_active_effect_cause_ids() -> None:
     assert "clearActiveEffectCause" in source
 
 
+def test_browser_navigation_splits_stories_without_inventing_causes() -> None:
+    """Path/hash changes start a new trace linked by fromTraceId; popstate does not."""
+    source = (ROOT / "packages/browser/src/index.ts").read_text(encoding="utf-8")
+    assert "installNavigationBoundary" in source
+    assert "maybeSplitStory" in source
+    assert "fromTraceId" in source
+    assert "navigation: true" in source
+    assert "popstate" in source
+    assert "ignoreHashChange" in source
+    assert "storyUrlKey" in source
+
+
 def test_next_fetch_skips_the_configured_collector_url() -> None:
     """Self-exclusion uses collectorUrl(), not a hardcoded :9477 port."""
     source = (ROOT / "packages/next/src/index.ts").read_text(encoding="utf-8")

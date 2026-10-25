@@ -637,6 +637,7 @@
       pinnedTrace: pageQuery.get("trace") || "",
       pinnedFinding: pageQuery.get("finding") || "",
       highlight: new Set(),
+      selfLoops: new Map(),
       query: "",
       scope: "trace",
       live: true,
@@ -1020,6 +1021,12 @@
       for (const key of [...state.nodes.keys()]) {
         if (!live.has(key)) state.nodes.delete(key);
       }
+      const selfLoops = new Map();
+      for (const edge of graph.edges) {
+        if (edge.from !== edge.to) continue;
+        selfLoops.set(edge.from, (selfLoops.get(edge.from) || 0) + (edge.count || 1));
+      }
+      state.selfLoops = selfLoops;
       state.edges = graph.edges.filter((edge) => edge.from !== edge.to);
       rebuildSeen();
     }
@@ -1027,6 +1034,17 @@
     function syncHighlight() {
       const open = openFindingRecord();
       state.highlight = new Set(Array.isArray(open?.nodeKeys) ? open.nodeKeys : []);
+    }
+
+    function findingNeighbourhood() {
+      if (state.highlight.size === 0) return null;
+      const seeds = new Set(state.highlight);
+      const keys = new Set(seeds);
+      for (const edge of timedEdges()) {
+        if (seeds.has(edge.from)) keys.add(edge.to);
+        if (seeds.has(edge.to)) keys.add(edge.from);
+      }
+      return keys;
     }
 
     function rebuildSeen() {
@@ -1077,9 +1095,10 @@
         if (seen == null || seen > at) return false;
       }
       if (!state.layers.has(node.layer)) return false;
-      if (state.hideAssets && isAsset(node.name)) return false;
+      if (state.hideAssets && isAsset(node.name) && !state.highlight.has(node.nodeKey)) return false;
       if (state.query && !`${node.name} ${node.kind}`.toLowerCase().includes(state.query)) return false;
-      if (state.highlight.has(node.nodeKey)) return true;
+      const neighbourhood = findingNeighbourhood();
+      if (neighbourhood) return neighbourhood.has(node.nodeKey);
       if (state.scope === "trace") {
         const keys = traceKeys();
         if (keys.size === 0) return true;
@@ -1976,6 +1995,12 @@
           context.font = "11px ui-sans-serif, system-ui, sans-serif";
           context.fillText(node.name, point.x + radius + 4, point.y + 3);
         }
+        const loopCount = state.selfLoops.get(node.nodeKey) || 0;
+        if (loopCount > 1) {
+          context.fillStyle = selected ? "#fff" : (onFinding ? "#ffd0d0" : "#c8c2b6");
+          context.font = "10px ui-sans-serif, system-ui, sans-serif";
+          context.fillText(`×${loopCount}`, point.x + radius + 4, point.y - radius - 2);
+        }
         if (state.showValues && !linked.has(node.nodeKey)) {
           const value = playheadValue(node.nodeKey);
           if (value) drawValueCaption(value, point.x, point.y + radius + 16, dim ? 0.35 : 1);
@@ -2603,7 +2628,7 @@
       assets: "Hides files Next.js loads just to draw the page: names containing /_next/ or webpack. It starts on. Turn it off to see those files, then press Fit.",
       "reset-filters": "Clears the name search, the selected trace, the open finding and the focused dot. Every layer is shown, Hide assets is off, Names is off and Values is on. The picture is All activity, Live is off, and the playhead sits at the end.",
       fit: "Recentres and zooms so everything currently shown fits on the screen. While a finding is open, Fit frames the highlighted dots or messages. On the latency chart it shows the whole recording, or the highlighted requests while a finding is open.",
-      findings: "Notes about what looks off in a story, such as a query that ran many times. Open one to paint its nodes red, emphasise duplicated links, select its trace and turn Live off. The playhead stays where it is. The sequence diagram paints those same messages red. The latency chart keeps those requests bright and fades the rest. Click the finding again to clear the highlight and show the whole graph at that same moment.",
+      findings: "Notes about what looks off in a story, such as a query that ran many times. Unchanged re-renders land as one ranked summary per story, not one row per component. Open a finding to show only its neighbourhood (the named nodes and their neighbours), paint those nodes red, emphasise duplicated links, select its trace and turn Live off. The playhead stays where it is. The sequence diagram paints those same messages red. The latency chart keeps those requests bright and fades the rest. Click the finding again to clear the slice and show the whole graph at that same moment.",
     };
 
     const help = document.getElementById("help");

@@ -28,6 +28,10 @@ type ActiveTrace = {
 let active: ActiveTrace | null = null;
 let pinned = false;
 let installed = false;
+/** Pathname + hash that bounds the current story. Query-string-only changes leave this alone. */
+let storyKey = "";
+/** True while a popstate (back/forward) is settling; those do not start a new story. */
+let ignoreHashChange = false;
 
 /** Start patching browser APIs. No effect unless stack-inspect is enabled. */
 export function install(): void {
@@ -40,6 +44,7 @@ export function install(): void {
   patchWebSocket();
   observeVisibleResults();
   installStorage();
+  installNavigationBoundary();
   document.addEventListener(
     "click",
     (event) => {
@@ -141,6 +146,91 @@ function startInteraction(name: string): void {
       kind: "interaction",
       phase: "instant",
       nodeKey: `browser:interaction:${name}`,
+    }),
+  );
+}
+
+/**
+ * Path or hash changes start a new story. Query-string-only changes and
+ * back/forward (popstate) do not. The navigation event records ``fromTraceId``
+ * so stories stay linked without inventing a causal edge.
+ */
+function installNavigationBoundary(): void {
+  storyKey = storyUrlKey();
+  wrapHistoryMethod("pushState");
+  wrapHistoryMethod("replaceState");
+  window.addEventListener("popstate", () => {
+    ignoreHashChange = true;
+    storyKey = storyUrlKey();
+    queueMicrotask(() => {
+      ignoreHashChange = false;
+    });
+  });
+  window.addEventListener("hashchange", () => {
+    if (ignoreHashChange) {
+      return;
+    }
+    maybeSplitStory("hashchange");
+  });
+}
+
+function wrapHistoryMethod(method: "pushState" | "replaceState"): void {
+  const original = history[method].bind(history);
+  history[method] = ((
+    data: unknown,
+    unused: string,
+    url?: string | URL | null,
+  ) => {
+    const result = original(
+      data,
+      unused,
+      url as string | URL | null | undefined,
+    );
+    maybeSplitStory(method);
+    return result;
+  }) as History["pushState"];
+}
+
+function storyUrlKey(): string {
+  return `${window.location.pathname}${window.location.hash}`;
+}
+
+function maybeSplitStory(reason: string): void {
+  const next = storyUrlKey();
+  if (next === storyKey) {
+    return;
+  }
+  const previousTraceId = active?.traceId;
+  const previousKey = storyKey;
+  storyKey = next;
+  pinned = false;
+  clearActiveEffectCause();
+  const interactionId = newEventId();
+  active = {
+    traceId: newTraceId(),
+    spanId: newSpanId(),
+    interactionId,
+    started: Date.now(),
+  };
+  (
+    window as Window & { __stackInspectTraceId?: string }
+  ).__stackInspectTraceId = active.traceId;
+  emit(
+    browserEvent({
+      id: interactionId,
+      name: `navigate ${next || "/"}`,
+      kind: "interaction",
+      phase: "instant",
+      nodeKey: `browser:navigation:${next || "/"}`,
+      attributes: {
+        navigation: true,
+        reason,
+        href: window.location.href,
+        fromPath: previousKey,
+        ...(previousTraceId === undefined
+          ? {}
+          : { fromTraceId: previousTraceId }),
+      },
     }),
   );
 }

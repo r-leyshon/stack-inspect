@@ -85,6 +85,10 @@ Stopped. The [spike](spikes/0004-database-writes.md) found that the statement te
 
 ## Not yet scheduled
 
+### Story boundaries and finding noise (application scale)
+
+Accepted in [ADR 0020](adr/0020-story-boundaries-and-finding-noise.md): navigation as a story boundary (with an observed link, not invented causal edges); finding-neighbourhood as the default UI and MCP slice; edge self-loop badges from existing `count`; coalesce `unchanged-rerender` into one ranked-offender summary per story.
+
 ### Agentic layer
 
 The collector answers read-only questions about findings, the report and a sliced graph ([ADR 0019](adr/0019-mcp-on-the-collector.md)). Playwright journeys and playhead control are not built. See [agent layer](agent-layer.md).

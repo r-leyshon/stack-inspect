@@ -56,14 +56,25 @@ def list_findings(events: list[GraphEvent]) -> dict[str, object]:
     return {"findings": [_finding_payload(finding, findings) for finding in findings]}
 
 
-def get_finding(events: list[GraphEvent], *, code: str, trace_id: str) -> dict[str, object]:
-    """Return the finding with this code in this story."""
+def get_finding(
+    events: list[GraphEvent],
+    *,
+    code: str,
+    trace_id: str,
+    declared: tuple[DeclaredEdge, ...] = (),
+) -> dict[str, object]:
+    """Return the finding with this code in this story, plus its neighbourhood slice."""
     findings = analyse(events)
     matches = [finding for finding in findings if finding.code == code and finding.trace_id == trace_id]
     if not matches:
         return {"note": "No finding with that code in this trace."}
     if len(matches) == 1:
-        return {"finding": _finding_payload(matches[0], findings)}
+        finding = matches[0]
+        body: dict[str, object] = {"finding": _finding_payload(finding, findings)}
+        neighbourhood = _finding_neighbourhood(events, finding, declared=declared)
+        if neighbourhood is not None:
+            body["neighbourhood"] = neighbourhood
+        return body
     return {
         "findings": [_finding_payload(finding, findings) for finding in matches],
         "note": "Several findings share this code and trace. Each link opens one of them.",
@@ -140,6 +151,43 @@ def get_node_neighbourhood(
     return body
 
 
+def _finding_neighbourhood(
+    events: list[GraphEvent],
+    finding: Finding,
+    *,
+    declared: tuple[DeclaredEdge, ...] = (),
+) -> dict[str, object] | None:
+    """Return the ego graph around a finding's node keys (same slice the UI opens)."""
+    if not finding.node_keys:
+        return None
+    story = [event for event in events if event["traceId"] == finding.trace_id]
+    projected = project(story if story else events)
+    seeds = {key for key in finding.node_keys if key in projected.nodes}
+    if not seeds:
+        return None
+    keys = set(seeds)
+    for edge in projected.edges:
+        if edge.origin in seeds:
+            keys.add(edge.target)
+        if edge.target in seeds:
+            keys.add(edge.origin)
+    nodes = [projected.nodes[key] for key in keys if key in projected.nodes]
+    observed = [edge for edge in projected.edges if edge.origin in keys and edge.target in keys]
+    drawn = _declared_edges(keys, observed, declared)
+    body: dict[str, object] = {
+        "traceId": finding.trace_id,
+        "nodeCount": len(nodes),
+        "edgeCount": len(observed) + len(drawn),
+        "nodeKeys": sorted(seeds),
+    }
+    if len(nodes) > _NODE_LIMIT or len(observed) + len(drawn) > _EDGE_LIMIT:
+        body["note"] = _NARROW
+        return body
+    body["nodes"] = [_node_payload(node) for node in nodes]
+    body["edges"] = [_edge_payload(edge) for edge in observed] + [_declared_payload(edge) for edge in drawn]
+    return body
+
+
 def mcp_application() -> Starlette:
     """Return the Streamable HTTP app served at ``/mcp``."""
     server = MCPServer(
@@ -149,6 +197,8 @@ def mcp_application() -> Starlette:
             "projection as the UI. Cite code, nodeKey and traceId. Do not invent an edge. "
             "Node runs and count are how many times that nodeKey ran in the story. "
             "Duplicate and repeated findings include durationMs and siblings in the same trace. "
+            "get_finding returns the finding-neighbourhood slice, not the whole story. "
+            "Unchanged re-renders are one ranked summary per story with offenders. "
             "A graph over the limit returns only nodeCount and edgeCount until narrowed."
         ),
     )
@@ -183,8 +233,8 @@ def _register(server: MCPServer) -> None:
 
     @server.tool(name="get_finding", annotations=_READ_ONLY, structured_output=False)
     def get_finding_tool(code: str, trace_id: str) -> dict[str, object]:
-        """Return one finding by its code and trace id, including siblings in that story."""
-        return get_finding(_events(), code=code, trace_id=trace_id)
+        """Return one finding by code and trace, with siblings and its neighbourhood slice."""
+        return get_finding(_events(), code=code, trace_id=trace_id, declared=_declared())
 
     @server.tool(name="get_report", annotations=_READ_ONLY, structured_output=False)
     def get_report_tool(trace_id: str = "") -> str:

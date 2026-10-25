@@ -500,3 +500,38 @@ def test_work_after_visible() -> None:
         _event(id="late", kind="request", ts=6, attributes={"path": "/api/dashboard"}),
     ]
     assert any(finding.code == "work-after-visible" for finding in analyse(events))
+
+
+def test_unchanged_rerenders_coalesce_into_one_ranked_summary() -> None:
+    """Same-code unchanged renders become one finding with ranked offenders."""
+    events = [
+        *(_unchanged_render("Presence", f"p{index}", ts=index) for index in range(1, 18)),
+        *(_unchanged_render("Dialog", f"d{index}", ts=20 + index) for index in range(1, 9)),
+        *(_unchanged_render("UserSettingsProvider", f"u{index}", ts=40 + index) for index in range(1, 6)),
+        _unchanged_render("Other", "o1", ts=50),
+    ]
+    matches = [finding for finding in analyse(events) if finding.code == "unchanged-rerender"]
+    assert len(matches) == 1
+    finding = matches[0]
+    total = 17 + 8 + 5 + 1
+    assert finding.count == total
+    assert finding.title == f"{total} components re-rendered with no changed props or state"
+    expected = "top offenders: Presence ×17, Dialog ×8, UserSettingsProvider ×5"  # noqa: RUF001 # multiplication sign matches finding detail
+    assert finding.detail.startswith(expected)
+    assert finding.node_keys[0] == "browser:render:Presence"
+    assert finding.offenders[0] == ("browser:render:Presence", "Presence", 17)
+    first_ts, last_ts = 1, 50
+    assert finding.duration_ms == last_ts - first_ts
+
+
+def _unchanged_render(name: str, event_id: str, *, ts: int) -> GraphEvent:
+    return _event(
+        id=event_id,
+        phase="instant",
+        kind="render",
+        layer="browser",
+        nodeKey=f"browser:render:{name}",
+        name=name,
+        ts=ts,
+        attributes={"unchanged": True},
+    )

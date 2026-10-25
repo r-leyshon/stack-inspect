@@ -70,6 +70,8 @@ interaction · state-update · render · effect · mount · unmount · middlewar
 · stream · stream-message · function-call · query · error
 ```
 
+A browser navigation that changes the document path or hash (not the query string alone) starts a new `traceId`. It is recorded as an `interaction` with `attributes.navigation` and `fromTraceId` linking the previous story. Back/forward does not split. See [ADR 0020](adr/0020-story-boundaries-and-finding-noise.md).
+
 Edge kinds:
 
 | Edge | Meaning | Needed for |
@@ -176,7 +178,7 @@ Rules run over the projected graph and raise findings in the UI:
 - The same query fingerprint executed repeatedly within one interaction (N+1 queries).
 - Sequential awaits with no observed dependency between them.
 - A state update causing an unusually large render subtree.
-- A component re-rendering with no changed props or relevant state.
+- Components re-rendering with no changed props or relevant state. Within one story these coalesce into a single summary finding: the title names how many such renders ran, the detail ranks the top offenders by count, and `nodeKeys` are those offenders. Individual per-component alerts are a drill-down, not ninety-odd top-level rows ([ADR 0020](adr/0020-story-boundaries-and-finding-noise.md)).
 - An effect repeatedly cancelled and restarted.
 - Duplicate requests with equivalent URLs or cache keys. The detail includes how many times and over how long. A non-idempotent method is titled separately. When the same component also mounted twice in the story, the detail says so.
 - A 5xx response missing CORS headers (reported to the browser as a CORS error).
@@ -184,7 +186,7 @@ Rules run over the projected graph and raise findings in the UI:
 - A stream reconnecting repeatedly, or messages arriving with no observed consumer.
 - Work finishing after the user-visible result was already rendered.
 
-Each finding names the `nodeKey`s it is about. Opening one in the UI paints those nodes red and emphasises any `duplicated` edges that join them. Extra runs of the same request or query stay one node; the projector records a counted `duplicated` edge from a parent when one exists, so the count carries the multiplicity. A link that would start and end on the same node is not drawn.
+Each finding names the `nodeKey`s it is about. Opening one in the UI shows that finding's neighbourhood (the named nodes and their neighbours), paints those nodes red and emphasises any `duplicated` edges that join them. Extra runs of the same request or query stay one node; the projector records a counted `duplicated` edge from a parent when one exists, so the count carries the multiplicity. A link that would start and end on the same node is not drawn; its `count` appears as a `×N` badge on the node instead ([ADR 0020](adr/0020-story-boundaries-and-finding-noise.md)).
 
 ## 10. Development-only guarantee
 

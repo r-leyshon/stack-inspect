@@ -17,6 +17,7 @@ EFFECT_RESTART_MIN = 2
 RECONNECT_MIN = 2
 DUPLICATE_MIN = 2
 SEQUENTIAL_MIN = 2
+UNCHANGED_OFFENDER_CAP = 5
 _NON_IDEMPOTENT = frozenset({"POST", "PUT", "PATCH", "DELETE"})
 
 
@@ -36,6 +37,7 @@ class Finding:
     duration_ms: float | None = None
     method: str | None = None
     idempotent: bool | None = None
+    offenders: tuple[tuple[str, str, int], ...] = ()
 
 
 def analyse(events: list[GraphEvent]) -> list[Finding]:
@@ -72,6 +74,10 @@ def finding_dict(finding: Finding, *, all_findings: list[Finding] | None = None)
         body["method"] = finding.method
     if finding.idempotent is not None:
         body["idempotent"] = finding.idempotent
+    if finding.offenders:
+        body["offenders"] = [
+            {"nodeKey": node_key, "name": name, "count": count} for node_key, name, count in finding.offenders
+        ]
     if all_findings is not None:
         body["siblings"] = [
             {"code": other.code, "title": other.title, "at": other.at}
@@ -210,17 +216,41 @@ def _rejected_preflights(trace_id: str, spans: list[Span]) -> list[Finding]:
 
 
 def _unchanged_rerenders(trace_id: str, spans: list[Span]) -> list[Finding]:
+    """One ranked summary per story, not one finding per unchanged render."""
+    unchanged = [span for span in spans if span.kind == "render" and span.attributes.get("unchanged") is True]
+    if not unchanged:
+        return []
+    by_key: dict[str, list[Span]] = {}
+    for span in unchanged:
+        by_key.setdefault(span.node_key, []).append(span)
+    ranked = sorted(
+        by_key.items(),
+        key=lambda item: (-len(item[1]), item[1][0].name.casefold(), item[0]),
+    )
+    total = len(unchanged)
+    first_at, last_at, duration_ms = _span_window(unchanged)
+    top = ranked[:UNCHANGED_OFFENDER_CAP]
+    offenders = tuple((node_key, group[0].name, len(group)) for node_key, group in top)
+    labels = [f"{name} ×{count}" for _, name, count in offenders]  # noqa: RUF001 # multiplication sign matches UI badges
+    detail = "top offenders: " + ", ".join(labels)
+    extra = len(ranked) - len(top)
+    if extra > 0:
+        detail += f" (+{extra} more)"
+    noun = "component" if total == 1 else "components"
     return [
         Finding(
             code="unchanged-rerender",
-            title="Component re-rendered with no changed props or state",
+            title=f"{total} {noun} re-rendered with no changed props or state",
             trace_id=trace_id,
-            detail=f"{span.name} re-rendered with nothing relevant changed",
-            at=span.start,
-            node_keys=(span.node_key,),
-        )
-        for span in spans
-        if span.kind == "render" and span.attributes.get("unchanged") is True
+            detail=detail,
+            at=first_at,
+            node_keys=tuple(node_key for node_key, _, _ in offenders),
+            count=total,
+            first_at=first_at,
+            last_at=last_at,
+            duration_ms=duration_ms,
+            offenders=offenders,
+        ),
     ]
 
 

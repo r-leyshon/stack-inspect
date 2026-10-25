@@ -2,7 +2,7 @@
 
 **Status:** The read tools are implemented ([ADR 0019](adr/0019-mcp-on-the-collector.md)). Findings carry span timing, method and idempotent flags where they apply, and `siblings` in the same story. Graph nodes expose `runs` alongside `count`. Mount and unmount events, and observed effect→fetch `causeIds`, are recorded when the React and browser adapters are installed. Playwright journeys, playhead control and invalidation questions are not.
 
-While `stack-inspect serve` is running, a client attaches to `http://127.0.0.1:9477/mcp`. The tools are `list_findings`, `get_finding`, `get_report`, `list_stories`, `get_graph` and `get_node_neighbourhood`. Each finding includes a link, `http://127.0.0.1:9477/?trace=…&finding=…`, and the page opens that story and that finding. Duplicate and repeated findings say how many times the work ran and over how long. A graph over the limit returns only `nodeCount` and `edgeCount` until narrowed; each node’s `runs` / `count` is how many times that key ran in the story. The tools do not clear the log, move the playhead, scan source, or turn value recording on.
+While `stack-inspect serve` is running, a client attaches to `http://127.0.0.1:9477/mcp`. The tools are `list_findings`, `get_finding`, `get_report`, `list_stories`, `get_graph` and `get_node_neighbourhood`. Each finding includes a link, `http://127.0.0.1:9477/?trace=…&finding=…`, and the page opens that story and that finding. `get_finding` also returns the finding-neighbourhood graph slice. Duplicate and repeated findings say how many times the work ran and over how long. Unchanged re-renders are one ranked summary per story (`offenders`). A graph over the limit returns only `nodeCount` and `edgeCount` until narrowed; each node’s `runs` / `count` is how many times that key ran in the story. The tools do not clear the log, move the playhead, scan source, or turn value recording on.
 
 ## North star
 
@@ -106,7 +106,7 @@ The graph model should already be ready for later questions. `causeIds`, `read` 
 
 ## Risks
 
-- **Context size.** A full graph will not fit a prompt. Tools return slices: a finding's neighbourhood, one story, or a cursor window.
+- **Context size.** A full graph will not fit a prompt. Tools return slices: a finding's neighbourhood, one story, or a cursor window. Opening a finding should prefer that neighbourhood over a whole-story dump ([ADR 0020](adr/0020-story-boundaries-and-finding-noise.md)). Same-code render noise is one ranked summary per story, not one finding per component.
 - **Secrets.** Agents ask for more context. Do not widen redaction for "better answers" without an explicit opt-in. Keep MCP on localhost only.
 - **Invented causality.** Answers cite a finding code, node key or event id. The tool does not invent edges, and it does not present an observed edge as a universal dependency ([vision](vision.md), evidence not claims).
 - **Silent edits.** Start with explain, suggest, and re-verify. Automatic patches come after the loop is trustworthy.

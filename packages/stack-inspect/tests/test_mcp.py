@@ -132,6 +132,15 @@ def test_get_finding_returns_one_match() -> None:
     finding = body["finding"]
     assert isinstance(finding, dict)
     assert finding["code"] == "repeated-query"
+    neighbourhood = body["neighbourhood"]
+    assert isinstance(neighbourhood, dict)
+    assert neighbourhood["traceId"] == "trace-jobs"
+    assert "db:query:notes" in neighbourhood["nodeKeys"]
+    nodes = neighbourhood["nodes"]
+    assert isinstance(nodes, list)
+    keys = {node["nodeKey"] for node in nodes if isinstance(node, dict)}
+    assert "db:query:notes" in keys
+    assert "api:request:POST /jobs" in keys
     assert get_finding(_story(), code="missing", trace_id="trace-jobs")["note"] == (
         "No finding with that code in this trace."
     )
