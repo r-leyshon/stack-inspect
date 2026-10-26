@@ -1,6 +1,6 @@
 [project]
 name = "stack-inspect-db"
-version = "1.2.0"
+version = "1.2.1"
 description = "Development-only adapter that records SQL from asyncpg and SQLAlchemy"
 readme = "README.md"
 requires-python = ">=3.12"

@@ -1,6 +1,6 @@
 {
   "name": "@stack-inspect/next",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "type": "module",
   "description": "Development-only Next.js adapter for stack-inspect",
   "exports": {
@@ -8,7 +8,7 @@
     "./middleware": "./src/middleware.ts"
   },
   "dependencies": {
-    "@stack-inspect/core": "1.2.0"
+    "@stack-inspect/core": "1.2.1"
   },
   "license": "MIT"
 }

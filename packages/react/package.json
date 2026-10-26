@@ -1,13 +1,13 @@
 {
   "name": "@stack-inspect/react",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "type": "module",
   "description": "Development-only React adapter for stack-inspect",
   "exports": {
     ".": "./src/index.ts"
   },
   "dependencies": {
-    "@stack-inspect/core": "1.2.0"
+    "@stack-inspect/core": "1.2.1"
   },
   "peerDependencies": {
     "react": ">=18"
