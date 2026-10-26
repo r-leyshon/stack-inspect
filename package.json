@@ -21,12 +21,15 @@
   },
   "license": "MIT",
   "overrides": {
-    "postcss": "8.5.28",
+    "postcss": "8.5.31",
+    "next": {
+      "postcss": "8.5.31"
+    },
     "sharp": "0.35.5",
     "source-map-js": "1.2.2"
   },
   "dependencies": {
-    "postcss": "8.5.28",
+    "postcss": "8.5.31",
     "sharp": "0.35.5"
   }
 }
