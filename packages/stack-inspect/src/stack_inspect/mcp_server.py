@@ -161,7 +161,7 @@ def _finding_neighbourhood(
     if not finding.node_keys:
         return None
     story = [event for event in events if event["traceId"] == finding.trace_id]
-    projected = project(story if story else events)
+    projected = project(story or events)
     seeds = {key for key in finding.node_keys if key in projected.nodes}
     if not seeds:
         return None
